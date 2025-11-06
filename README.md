@@ -75,7 +75,11 @@ pip install pandas numpy pyreadstat linearmodels statsmodels matplotlib seaborn 
 
 ### Input Data
 
-The analysis uses `Data/Molise.dta`, a Stata file containing INPS LoSaI microdata with the following key variables:
+The analysis uses two Stata files containing INPS LoSaI microdata:
+- `Data/Molise.dta` - Treatment region (Molise, region code 12)
+- `Data/Basilicata.dta` - Control region (Basilicata, region code 2)
+
+The `load_raw()` function automatically loads and combines both datasets. Key variables include:
 
 - **Identifiers**: `id_worker`, `year`, `id_firm`
 - **Demographics**: `gender` (0=Male, 1=Female), `year_birth`, `age`
@@ -291,12 +295,18 @@ jupyter notebook 03_main_analysis.ipynb
 
 ## Notes
 
-### Control Region
+### Data Loading
 
-If Basilicata (region code 2) data is not available in the dataset, the code will:
-1. Warn about missing control region
-2. Use within-Molise variation (private vs public workers) as alternative identification
-3. Optionally use Puglia (region code 14) or another control region if available
+The `load_raw()` function automatically:
+1. Loads both `Data/Molise.dta` and `Data/Basilicata.dta`
+2. Sets `region_res` to '12' for Molise and '2' for Basilicata
+3. Combines the datasets into a single DataFrame
+4. Prints summary statistics for each region
+
+If you want to load only a single file, use:
+```python
+df, meta = load_raw(load_both_regions=False)
+```
 
 ### Data Requirements
 
