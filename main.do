@@ -44,7 +44,6 @@ gen byte post_quake  = (year >= 2003)
 
 label var treat_quake "Molise resident"
 label var post_quake  "Post 2003"
-
 *============================*
 *      OUTCOME VARIABLES     *
 *============================*
@@ -53,7 +52,7 @@ cap confirm variable employed
 if _rc gen byte employed = inlist(type, 1, 2, 3) if !missing(type)
 label var employed "Any employment (probability)"
 
-// Employment type dummies
+// Employment type dummies DA FARE DATA CLEANING SU STATA
 cap drop y_private y_public y_self
 gen byte y_private = (type == 1) if !missing(type)
 gen byte y_public  = (type == 2) if !missing(type)
@@ -75,7 +74,7 @@ label var rel_year "Year - 2002"
 *============================*
 *   INCOME CATEGORIES        *
 *============================*
-// Current income category
+// Current income category DA FARE DATA CLEANING SU STATA
 cap drop income_category
 gen byte income_category = 1 if wage < 28000 & !missing(wage)
 replace income_category = 2 if inrange(wage, 28000, 50000)
