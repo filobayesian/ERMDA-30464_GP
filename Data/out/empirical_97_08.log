@@ -1,0 +1,288 @@
+
+. 
+. *============================*
+. * PACKAGE INSTALLATION       *
+. *============================*
+. local packages ftools reghdfe estout coefplot parmest
+
+. foreach pkg of local packages {
+  2.     cap which `pkg'
+  3.     if _rc ssc install `pkg', replace
+  4. }
+
+. 
+. *============================*
+. *       LOAD DATA            *
+. *============================*
+. local regions molise basilicata
+
+. local first = 1
+
+. foreach r of local regions {
+  2.     if `first' {
+  3.         use "Data/derived/`r'_filtered.dta", clear
+  4.         local first = 0
+  5.     }
+  6.     else append using "Data/derived/`r'_filtered.dta"
+  7. }
+
+. 
+. *============================*
+. *   TREATMENT VARIABLES      *
+. *============================*
+. destring region_res, replace
+region_res: all characters numeric; replaced as byte
+
+. cap drop treat_quake post_quake
+
+. 
+. gen byte treat_quake = (region_res == 12)
+
+. gen byte post_quake  = (year >= 2003)
+
+. 
+. label var treat_quake "Molise resident"
+
+. label var post_quake  "Post 2003"
+
+. 
+. *============================*
+. *      OUTCOME VARIABLES     *
+. *============================*
+. // Employment indicator
+. cap confirm variable employed
+
+. if _rc gen byte employed = inlist(type, 1, 2, 3) if !missing(t
+> ype)
+
+. label var employed "Any employment (probability)"
+
+. 
+. // Employment type dummies
+. cap drop y_private y_public y_self
+
+. gen byte y_private = (type == 1) if !missing(type)
+
+. gen byte y_public  = (type == 2) if !missing(type)
+
+. gen byte y_self    = (type == 3) if !missing(type)
+
+. 
+. label var y_private "Private employment (Pr)"
+
+. label var y_public  "Public employment (Pr)"
+
+. label var y_self    "Self-employment (Pr)"
+
+. 
+. // Log wage
+. cap drop lnwage
+
+. gen double lnwage = ln(wage + 1)
+(27,826 missing values generated)
+
+. 
+. // Relative year for event study
+. cap drop rel_year
+
+. gen rel_year = year - 2002
+
+. label var rel_year "Year - 2002"
+
+. 
+. *============================*
+. *   INCOME CATEGORIES        *
+. *============================*
+. // Current income category
+. cap drop income_category
+
+. gen byte income_category = 1 if wage < 28000 & !missing(wage)
+(39,784 missing values generated)
+
+. replace income_category = 2 if inrange(wage, 28000, 50000)
+(9,767 real changes made)
+
+. replace income_category = 3 if wage > 50000
+(30,017 real changes made)
+
+. 
+. label define inc3 1 "Low" 2 "Medium" 3 "High"
+
+. label values income_category inc3
+
+. label var income_category "Income category (current)"
+
+. 
+. // Baseline income (last pre-quake year)
+. cap drop pre baseline_wage base_inc base_inc4
+
+. gen byte pre = (post_quake == 0)
+
+. 
+. bys id_worker: egen pre_last_year = max(year) if pre
+(71,239 missing values generated)
+
+. gen double baseline_wage = wage if year == pre_last_year
+(133,348 missing values generated)
+
+. bys id_worker: egen baseline_wage2 = max(baseline_wage)
+(22,652 missing values generated)
+
+. drop baseline_wage pre
+
+. rename baseline_wage2 baseline_wage
+
+. 
+. gen byte base_inc = 1 if baseline_wage < 28000
+(32,724 missing values generated)
+
+. replace base_inc = 2 if inrange(baseline_wage, 28000, 50000)
+(7,917 real changes made)
+
+. replace base_inc = 3 if baseline_wage > 50000
+(24,807 real changes made)
+
+. 
+. gen byte base_inc4 = cond(missing(base_inc), 4, base_inc)
+
+. 
+. label define baseinc4 1 "Low (pre)" 2 "Med (pre)" 3 "High (pre
+> )" 4 "Unknown (pre)"
+
+. label values base_inc4 baseinc4
+
+. label var base_inc4 "Baseline income (4 cats incl. Unknown)"
+
+. 
+. // Joint outcomes: employed AND income category
+. cap drop y_emp_*
+
+. gen byte y_emp_low     = (employed == 1 & income_category == 1
+> )
+
+. gen byte y_emp_med     = (employed == 1 & income_category == 2
+> )
+
+. gen byte y_emp_high    = (employed == 1 & income_category == 3
+> )
+
+. gen byte y_emp_unknown = (employed == 1 & missing(income_categ
+> ory))
+
+. 
+. label var y_emp_low     "Pr(emp ∧ low)"
+
+. label var y_emp_med     "Pr(emp ∧ med)"
+
+. label var y_emp_high    "Pr(emp ∧ high)"
+
+. label var y_emp_unknown "Pr(emp ∧ unknown)"
+
+. 
+. *============================*
+. *    REGRESSION ANALYSES     *
+. *============================*
+. local outcomes employed wage lnwage
+
+. local absorb_spec absorb(year region_res) vce(cluster id_worke
+> r)
+
+. 
+. // (A) Region-based DiD
+. foreach y of local outcomes {
+  2.     qui count if !missing(`y')
+  3.     if r(N) > 0 {
+  4.         eststo A_`y': reghdfe `y' i.post_quake##i.treat_qua
+> ke, `absorb_spec'
+  5.         estadd local model "A: Region DiD"
+  6.         estadd local depvar "`y'"
+  7.     }
+  8. }
+(MWFE estimator converged in 3 iterations)
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+
+HDFE Linear regression                            Number of obs 
+>   =    146,229
+Absorbing 2 HDFE groups                           F(   1,  15305
+> )                                                             
+>   =       3.56
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.0592
+                                                  R-squared     
+>   =     0.0111
+                                                  Adj R-squared 
+>   =     0.0110
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     15,306       Root MSE      
+>   =     0.3904
+
+                         (Std. err. adjusted for 15,306 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+    employed | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.post_quake |          0  (omitted)
+1.treat_qu~e |          0  (omitted)
+             |
+  post_quake#|
+ treat_quake |
+        1 1  |  -.0096516   .0051161    -1.89   0.059    -.01967
+> 98                                                            
+>       .0003767
+             |
+       _cons |   .8113704   .0022165   366.05   0.000     .80702
+> 57                                                            
+>       .8157151
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |        10           0          10     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+e(model) already defined
+r(110);
+
+end of do-file
+
+r(110);
+
+. do "/var/folders/yt/tw36rldj4vj59zcpt_d9sjww0000gn/T//SD76546.
+> 000000"
+
+. clear all
+
+. set more off, permanently
+(set more preference recorded)
+
+. 
+. *============================*
+. *          SETUP             *
+. *============================*
+. global DATA ""           
+
+. global OUT  ""          
+
+. cap mkdir "$OUT"
+
+. 
+. log close _all
+      name:  <unnamed>
+       log:  /Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_
+> GP/Data/out/empirical_97_08.log
+  log type:  text
+ closed on:  15 Nov 2025, 18:57:49
+----------------------------------------------------------------

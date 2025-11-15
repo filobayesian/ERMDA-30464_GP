@@ -1,209 +1,243 @@
 clear all
 set more off, permanently
+
 *============================*
-*          PATHS             *
+*          SETUP             *
 *============================*
 global DATA ""           
-global OUT  ""          
+global OUT  "output"          
 cap mkdir "$OUT"
 
 log close _all
-cap log using "$OUT/DiD_DDD_dynamic.log", replace text
-*============================*
-* PACKAGE CHECKS (Robust) *
-*============================*
-* 1. Uninstall both packages to ensure a clean state
-*cap ado uninstall reghdfe
-*cap ado uninstall ftools
+cap log using "$OUT/empirical_97_08.log", replace text
 
-* 2. Clear Stata's ado-file cache (crucial step)
-*discard
-
-* 3. Re-install in the correct order: ftools THEN reghdfe
-cap which ftools
-if _rc ssc install ftools, replace
-cap which reghdfe
-if _rc ssc install reghdfe, replace
-
-* 4. Install other packages
-cap which estout
-if _rc ssc install estout, replace
-cap which coefplot
-if _rc ssc install coefplot, replace
-cap which parmest
-if _rc ssc install parmest, replace
 *============================*
-*       LOAD THE DATA        *
+* PACKAGE INSTALLATION       *
 *============================*
-* Use the FILTERED datasets directly (as requested).
-* >>> EDIT these filenames if your names/paths differ <<<
-local M_file "Data/derived/molise_filtered.dta" 
-local B_file "Data/derived/basilicata_filtered.dta"
-*local P_file "derived/puglia_filtered.dta"
+local packages ftools reghdfe estout coefplot parmest
+foreach pkg of local packages {
+    cap which `pkg'
+    if _rc ssc install `pkg', replace
+}
 
-use `M_file', clear
-append using `B_file'
-*append using `P_file'
 *============================*
-*   TREATMENT DEFINITIONS    *
+*       LOAD DATA            *
+*============================*
+local regions molise basilicata
+local first = 1
+foreach r of local regions {
+    if `first' {
+        use "Data/derived/`r'_filtered.dta", clear
+        local first = 0
+    }
+    else append using "Data/derived/`r'_filtered.dta"
+}
+
+*============================*
+*   TREATMENT VARIABLES      *
 *============================*
 destring region_res, replace
-* Molise treated, post from 2003 (quake 31 Oct 2002)
 cap drop treat_quake post_quake
-gen byte treat_quake = region_res==12
+
+gen byte treat_quake = (region_res == 12)
+gen byte post_quake  = (year >= 2003)
+
 label var treat_quake "Molise resident"
-local quake_cutoff = 2003
-gen byte post_quake  = year >= `quake_cutoff'
 label var post_quake  "Post 2003"
 
-* Relative year for dynamic DiD (C)
-cap drop rel_year
-gen rel_year = year - 2002    // event year = 2002
-label var rel_year "Year - 2002"
 *============================*
-*         OUTCOMES           *
+*      OUTCOME VARIABLES     *
 *============================*
-* The spec calls for employment + earnings. We run: employed, wage (level), lnwage (log).
+// Employment indicator
+cap confirm variable employed
+if _rc gen byte employed = inlist(type, 1, 2, 3) if !missing(type)
+label var employed "Any employment (probability)"
+
+// Employment type dummies
+cap drop y_private y_public y_self
+gen byte y_private = (type == 1) if !missing(type)
+gen byte y_public  = (type == 2) if !missing(type)
+gen byte y_self    = (type == 3) if !missing(type)
+
+label var y_private "Private employment (Pr)"
+label var y_public  "Public employment (Pr)"
+label var y_self    "Self-employment (Pr)"
+
+// Log wage
 cap drop lnwage
 gen double lnwage = ln(wage + 1)
 
+// Relative year for event study
+cap drop rel_year
+gen rel_year = year - 2002
+label var rel_year "Year - 2002"
+
+*============================*
+*   INCOME CATEGORIES        *
+*============================*
+// Current income category
+cap drop income_category
+gen byte income_category = 1 if wage < 28000 & !missing(wage)
+replace income_category = 2 if inrange(wage, 28000, 50000)
+replace income_category = 3 if wage > 50000
+
+label define inc3 1 "Low" 2 "Medium" 3 "High"
+label values income_category inc3
+label var income_category "Income category (current)"
+
+// Baseline income (last pre-quake year)
+cap drop pre baseline_wage base_inc base_inc4
+gen byte pre = (post_quake == 0)
+
+bys id_worker: egen pre_last_year = max(year) if pre
+gen double baseline_wage = wage if year == pre_last_year
+bys id_worker: egen baseline_wage2 = max(baseline_wage)
+drop baseline_wage pre
+rename baseline_wage2 baseline_wage
+
+gen byte base_inc = 1 if baseline_wage < 28000
+replace base_inc = 2 if inrange(baseline_wage, 28000, 50000)
+replace base_inc = 3 if baseline_wage > 50000
+
+gen byte base_inc4 = cond(missing(base_inc), 4, base_inc)
+
+label define baseinc4 1 "Low (pre)" 2 "Med (pre)" 3 "High (pre)" 4 "Unknown (pre)"
+label values base_inc4 baseinc4
+label var base_inc4 "Baseline income (4 cats incl. Unknown)"
+
+// Joint outcomes: employed AND income category
+cap drop y_emp_*
+gen byte y_emp_low     = (employed == 1 & income_category == 1)
+gen byte y_emp_med     = (employed == 1 & income_category == 2)
+gen byte y_emp_high    = (employed == 1 & income_category == 3)
+gen byte y_emp_unknown = (employed == 1 & missing(income_category))
+
+label var y_emp_low     "Pr(emp ∧ low)"
+label var y_emp_med     "Pr(emp ∧ med)"
+label var y_emp_high    "Pr(emp ∧ high)"
+label var y_emp_unknown "Pr(emp ∧ unknown)"
+
+*============================*
+*    REGRESSION ANALYSES     *
+*============================*
 local outcomes employed wage lnwage
-eststo clear
-*====================================================*
-*   (A) Region-based DiD: Molise vs Basilicata+Puglia
-*====================================================*
+local absorb_spec absorb(year region_res) vce(cluster id_worker)
+
+// (A) Region-based DiD
 foreach y of local outcomes {
-    quietly count if !missing(`y')
-    if r(N)>0 {
-		eststo A_`y': reghdfe `y' c.post_quake##i.treat_quake, ///
-			absorb(i.year i.region_res) vce(cluster id_worker)
+    qui count if !missing(`y')
+    if r(N) > 0 {
+        eststo A_`y': reghdfe `y' i.post_quake##i.treat_quake, `absorb_spec'
         estadd local model "A: Region DiD", replace
         estadd local depvar "`y'", replace
     }
 }
-*=======================================*
-* (B) DDD: By Employment Type (Base=Non-employed)
-*=======================================*
-foreach y of local outcomes {
-    quietly count if !missing(`y')
-    if r(N)>0 {
-        * Use ib4.type to set 'Non-employed' (value 4) as the reference category
-		eststo B_`y': reghdfe `y' c.post_quake##i.treat_quake##ib1.type, ///
-			absorb(i.year i.region_res) vce(cluster id_worker)
-        estadd local model "B: DDD (Type x Quake, Base=4)", replace
-        estadd local depvar "`y'", replace
-    }
-}
-*==================================*
-* (C) Dynamic DiD (Event-Study)
-* WORKAROUND: Manual Dummies
-*==================================*
-keep if inrange(rel_year, -5, 5)
 
-* 1. Create manual event-study dummies
-* This bypasses the reghdfe parser bug
-local es_dummies ""
-forval k = -5/5 {
-    if `k' != -1 { // Skip base year -1
-        * Create clean varname (e.g., event_m5, event_0, event_5)
-        local suffix = subinstr("`k'", "-", "m", 1)
-        
-        * Gen the dummy: (rel_year == k) AND (treated)
-        gen byte event_`suffix' = (rel_year == `k' & treat_quake == 1)
-        
-        * Add new dummy to the regression varlist
-        local es_dummies `es_dummies' event_`suffix'
-    }
+// (B) Employment type LPM DiD
+foreach y in y_private y_public y_self {
+    eststo B_`y': reghdfe `y' i.treat_quake##i.post_quake, `absorb_spec'
+    estadd local model "B: Type-specific LPM DiD", replace
+    estadd local depvar "`y'", replace
+    
+    qui margins treat_quake#post_quake
+    qui lincom 1.treat_quake#1.post_quake
 }
 
-* 2. Redefine _evtstore program to accept a filepath
+// (D) Baseline income heterogeneity
+eststo D_pooled: reghdfe employed i.treat_quake##i.post_quake##i.base_inc4, `absorb_spec'
+estadd local model "D: Baseline income DDD", replace
+estadd local depvar "employed", replace
+
+forvalues c = 1/3 {
+    eststo D_bin`c': reghdfe employed i.treat_quake##i.post_quake if base_inc == `c', `absorb_spec'
+    estadd local model "D: DiD within baseline bin `c'", replace
+    estadd local depvar "employed", replace
+    
+    qui margins treat_quake#post_quake
+    qui lincom 1.treat_quake#1.post_quake
+}
+
+// (E) Joint outcomes DiD
+foreach y in y_emp_low y_emp_med y_emp_high y_emp_unknown {
+    eststo E_`y': reghdfe `y' i.treat_quake##i.post_quake, `absorb_spec'
+    estadd local model "E: Joint outcome DiD", replace
+    estadd local depvar "`y'", replace
+    
+    qui margins treat_quake#post_quake
+    qui lincom 1.treat_quake#1.post_quake
+}
+
+*============================*
+*   EVENT STUDY (DYNAMIC)    *
+*============================*
+// Event study program
 cap program drop _evtstore
-program define _evtstore, rclass
-    syntax varname [if] [in], Filepath(string) // <-- ADDED: Accepts filepath option
-    
-    tempname b V
-    mat `b' = e(b)
-    mat `V' = e(V)
-    
-    * This command replaces data in memory AND clears globals
+program define _evtstore
+    syntax, Filepath(string)
     parmest, norestore
-    
-    * Keep only coefficients for our manual dummies (event_m5, etc.)
     keep if strpos(parm, "event_") == 1
     
-    * Extract the integer rel_year from the parm label
     gen str10 rel_str = subinstr(parm, "event_", "", 1)
     replace rel_str = subinstr(rel_str, "m", "-", 1)
     gen rel = real(rel_str)
-
-    rename estimate beta
-    rename min95 ci_lo
-    rename max95 ci_hi
+    
+    rename (estimate min95 max95) (beta ci_lo ci_hi)
     keep rel beta ci_lo ci_hi
     sort rel
     
-    * Export the CSV from *inside* the program using the passed path
-    export delimited using "`filepath'", replace // <-- CHANGED
-
-    tempfile es
-    save `es', replace
-    return local esfile `es'
+    export delimited using "`filepath'", replace
 end
 
-* 3. Run regression loop using manual dummies
+// Run event studies - preserve for each outcome
+cap mkdir "$OUT"
 foreach y of local outcomes {
-    quietly count if !missing(`y')
-    if r(N)>0 {
-        
-        preserve 
-
-        * Event-study regression
-        eststo C_`y': reghdfe `y' `es_dummies', ///
-            absorb(i.year i.region_res) vce(cluster id_worker)
-        estadd local model "C: Dynamic DiD", replace
-        estadd local depvar "`y'", replace
-
-        * --- ROBUST PATH FIX ---
-        * Re-define global path. This makes the loop runnable 
-        * on its own and protects against parmest clearing globals.
-        global OUT "./Data"
-        cap mkdir "$OUT"
-        
-        * Define output paths *before* parmest is called
-        local csv_outfile = "$OUT/eventstudy_`y'.csv"
-        local png_outfile = "$OUT/eventstudy_`y'.png"
-        * --- END FIX ---
-        
-        * Call the program, passing the pre-defined CSV path
-        * This will run parmest and export the CSV
-        quietly _evtstore `y', filepath("`csv_outfile'")
-        local esfile = r(esfile) 
-
-        * Data in memory is now the coefficient table
-        
-        * Run coefplot, using the local path `png_outfile`
-        capture noisily coefplot, keep(event_*) ///
-            vertical xline(0, lpattern(dash)) ciopts(recast(rcap)) ///
-            title("Event study: `y'") ytitle("Effect vs rel_year=-1") xtitle("Relative year")
-        if _rc==0 graph export "`png_outfile'", replace
-        
-        restore 
+    preserve
+    keep if inrange(rel_year, -5, 5)
+    
+    // Generate event dummies (omitting -1)
+    cap drop event_*
+    forval k = -5/5 {
+        if `k' != -1 {
+            local suffix = cond(`k' < 0, "m" + string(abs(`k')), string(`k'))
+            gen byte event_`suffix' = (rel_year == `k' & treat_quake == 1)
+        }
     }
+    
+    cap confirm variable `y'
+    if !_rc {
+        qui count if !missing(`y')
+        if r(N) > 0 {
+            eststo C_`y': reghdfe `y' event_*, `absorb_spec'
+            estadd local model "C: Dynamic DiD", replace
+            estadd local depvar "`y'", replace
+            
+            qui _evtstore, filepath("$OUT/eventstudy_`y'.csv")
+            
+            cap coefplot, keep(event_*) vertical xline(0, lp(dash)) ///
+                ciopts(recast(rcap)) title("Event study: `y'") ///
+                ytitle("Effect vs rel_year=-1") xtitle("Relative year")
+            if !_rc graph export "$OUT/eventstudy_`y'.png", replace
+        }
+    }
+    restore
 }
+
 *============================*
-*         OUTPUT TABLES      *
+*      EXPORT RESULTS        *
 *============================*
-label var post_quake                   "Post"
-label var treat_quake                  "Treated (Molise)"
+local star_spec star(* 0.10 ** 0.05 *** 0.01)
+local table_opts replace se r2 ar2 label nonotes b(%9.4f) se(%9.4f) `star_spec'
 
-esttab A_* B_* C_* using "$OUT/results_DiD_DDD_dynamic.csv", ///
-    replace se r2 ar2 nogap nogaps compress label nonotes ///
-    b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
-    scalars("N N" "r2_a Adj.R2" "model Model" "depvar Outcome")
+// Block-specific tables
+esttab D_pooled D_bin1 D_bin2 D_bin3 using "$OUT/results_D_baseline_income.txt", ///
+    `table_opts' title("D — Baseline income heterogeneity")
 
-esttab A_* B_* C_* using "$OUT/results_DiD_DDD_dynamic.txt", ///
-    replace se r2 ar2 nogap nogaps label nonotes ///
-    b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
-    title("Designs A/B/C — Region DiD, DDD, and Dynamic DiD")
+esttab E_y_emp_* using "$OUT/results_E_joint_outcomes.txt", ///
+    `table_opts' title("E — Joint outcomes: Pr(emp & income bin)")
 
+// Master table
+esttab A_* B_* C_* D_* E_* using "$OUT/results_ALL.txt", ///
+    `table_opts' nogap nogaps ///
+    title("A/B/C/D/E — Region DiD, Type LPM, Dynamic, Baseline Income, Joint Outcomes")
 
+log close _all

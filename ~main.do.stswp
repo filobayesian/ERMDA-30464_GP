@@ -5,7 +5,7 @@ set more off, permanently
 *          SETUP             *
 *============================*
 global DATA ""           
-global OUT  ""          
+global OUT  "output"          
 cap mkdir "$OUT"
 
 log close _all
@@ -128,16 +128,16 @@ foreach y of local outcomes {
     qui count if !missing(`y')
     if r(N) > 0 {
         eststo A_`y': reghdfe `y' i.post_quake##i.treat_quake, `absorb_spec'
-        estadd local model "A: Region DiD"
-        estadd local depvar "`y'"
+        estadd local model "A: Region DiD", replace
+        estadd local depvar "`y'", replace
     }
 }
 
 // (B) Employment type LPM DiD
 foreach y in y_private y_public y_self {
     eststo B_`y': reghdfe `y' i.treat_quake##i.post_quake, `absorb_spec'
-    estadd local model "B: Type-specific LPM DiD"
-    estadd local depvar "`y'"
+    estadd local model "B: Type-specific LPM DiD", replace
+    estadd local depvar "`y'", replace
     
     qui margins treat_quake#post_quake
     qui lincom 1.treat_quake#1.post_quake
@@ -145,13 +145,13 @@ foreach y in y_private y_public y_self {
 
 // (D) Baseline income heterogeneity
 eststo D_pooled: reghdfe employed i.treat_quake##i.post_quake##i.base_inc4, `absorb_spec'
-estadd local model "D: Baseline income DDD"
-estadd local depvar "employed"
+estadd local model "D: Baseline income DDD", replace
+estadd local depvar "employed", replace
 
 forvalues c = 1/3 {
     eststo D_bin`c': reghdfe employed i.treat_quake##i.post_quake if base_inc == `c', `absorb_spec'
-    estadd local model "D: DiD within baseline bin `c'"
-    estadd local depvar "employed"
+    estadd local model "D: DiD within baseline bin `c'", replace
+    estadd local depvar "employed", replace
     
     qui margins treat_quake#post_quake
     qui lincom 1.treat_quake#1.post_quake
@@ -160,8 +160,8 @@ forvalues c = 1/3 {
 // (E) Joint outcomes DiD
 foreach y in y_emp_low y_emp_med y_emp_high y_emp_unknown {
     eststo E_`y': reghdfe `y' i.treat_quake##i.post_quake, `absorb_spec'
-    estadd local model "E: Joint outcome DiD"
-    estadd local depvar "`y'"
+    estadd local model "E: Joint outcome DiD", replace
+    estadd local depvar "`y'", replace
     
     qui margins treat_quake#post_quake
     qui lincom 1.treat_quake#1.post_quake
@@ -170,17 +170,6 @@ foreach y in y_emp_low y_emp_med y_emp_high y_emp_unknown {
 *============================*
 *   EVENT STUDY (DYNAMIC)    *
 *============================*
-preserve
-keep if inrange(rel_year, -5, 5)
-
-// Generate event dummies (omitting -1)
-forval k = -5/5 {
-    if `k' != -1 {
-        local suffix = cond(`k' < 0, "m" + string(abs(`k')), string(`k'))
-        gen byte event_`suffix' = (rel_year == `k' & treat_quake == 1)
-    }
-}
-
 // Event study program
 cap program drop _evtstore
 program define _evtstore
@@ -199,24 +188,39 @@ program define _evtstore
     export delimited using "`filepath'", replace
 end
 
-// Run event studies
+// Run event studies - preserve for each outcome
 cap mkdir "$OUT"
 foreach y of local outcomes {
-    qui count if !missing(`y')
-    if r(N) > 0 {
-        eststo C_`y': reghdfe `y' event_*, `absorb_spec'
-        estadd local model "C: Dynamic DiD"
-        estadd local depvar "`y'"
-        
-        qui _evtstore, filepath("$OUT/eventstudy_`y'.csv")
-        
-        cap coefplot, keep(event_*) vertical xline(0, lp(dash)) ///
-            ciopts(recast(rcap)) title("Event study: `y'") ///
-            ytitle("Effect vs rel_year=-1") xtitle("Relative year")
-        if !_rc graph export "$OUT/eventstudy_`y'.png", replace
+    preserve
+    keep if inrange(rel_year, -5, 5)
+    
+    // Generate event dummies (omitting -1)
+    cap drop event_*
+    forval k = -5/5 {
+        if `k' != -1 {
+            local suffix = cond(`k' < 0, "m" + string(abs(`k')), string(`k'))
+            gen byte event_`suffix' = (rel_year == `k' & treat_quake == 1)
+        }
     }
+    
+    cap confirm variable `y'
+    if !_rc {
+        qui count if !missing(`y')
+        if r(N) > 0 {
+            eststo C_`y': reghdfe `y' event_*, `absorb_spec'
+            estadd local model "C: Dynamic DiD", replace
+            estadd local depvar "`y'", replace
+            
+            qui _evtstore, filepath("$OUT/eventstudy_`y'.csv")
+            
+            cap coefplot, keep(event_*) vertical xline(0, lp(dash)) ///
+                ciopts(recast(rcap)) title("Event study: `y'") ///
+                ytitle("Effect vs rel_year=-1") xtitle("Relative year")
+            if !_rc graph export "$OUT/eventstudy_`y'.png", replace
+        }
+    }
+    restore
 }
-restore
 
 *============================*
 *      EXPORT RESULTS        *
