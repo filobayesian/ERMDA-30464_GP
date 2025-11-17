@@ -1,0 +1,1464 @@
+
+. 
+. *============================*
+. * PACKAGE INSTALLATION       *
+. *============================*
+. local packages ftools reghdfe estout coefplot parmest
+
+. foreach pkg of local packages {
+  2.     cap which `pkg'
+  3.     if _rc ssc install `pkg', replace
+  4. }
+
+. 
+. *============================*
+. *       LOAD DATA            *
+. *============================*
+. local regions molise basilicata
+
+. local first = 1
+
+. foreach r of local regions {
+  2.     if `first' {
+  3.         use "Data/derived/`r'_filtered.dta", clear
+  4.         local first = 0
+  5.     }
+  6.     else append using "Data/derived/`r'_filtered.dta"
+  7. }
+
+. 
+. *============================*
+. *   TREATMENT VARIABLES      *
+. *============================*
+. destring region_res, replace
+region_res: all characters numeric; replaced as byte
+
+. cap drop treat_quake post_quake
+
+. 
+. gen byte treat_quake = (region_res == 12)
+
+. gen byte post_quake  = (year >= 2003)
+
+. 
+. label var treat_quake "Molise resident"
+
+. label var post_quake  "Post 2003"
+
+. *============================*
+. *      OUTCOME VARIABLES     *
+. *============================*
+. // Employment indicator
+. cap confirm variable employed
+
+. if _rc gen byte employed = inlist(type, 1, 2, 3) if !missing(t
+> ype)
+
+. label var employed "Any employment (probability)"
+
+. 
+. // Employment type dummies DA FARE DATA CLEANING SU STATA
+. cap drop y_private y_public y_self
+
+. gen byte y_private = (type == 1) if !missing(type)
+
+. gen byte y_public  = (type == 2) if !missing(type)
+
+. gen byte y_self    = (type == 3) if !missing(type)
+
+. 
+. label var y_private "Private employment (Pr)"
+
+. label var y_public  "Public employment (Pr)"
+
+. label var y_self    "Self-employment (Pr)"
+
+. 
+. // Log wage
+. cap drop lnwage
+
+. gen double lnwage = ln(wage + 1)
+(14,687 missing values generated)
+
+. 
+. // Relative year for event study
+. cap drop rel_year
+
+. gen rel_year = year - 2002
+
+. label var rel_year "Year - 2002"
+
+. 
+. *============================*
+. *   INCOME CATEGORIES        *
+. *============================*
+. // Current income category DA FARE DATA CLEANING SU STATA
+. cap drop income_category
+
+. gen byte income_category = 1 if wage < 28000 & !missing(wage)
+(19,996 missing values generated)
+
+. replace income_category = 2 if inrange(wage, 28000, 50000)
+(4,233 real changes made)
+
+. replace income_category = 3 if wage > 50000
+(15,763 real changes made)
+
+. 
+. label define inc3 1 "Low" 2 "Medium" 3 "High"
+
+. label values income_category inc3
+
+. label var income_category "Income category (current)"
+
+. 
+. // Baseline income (last pre-quake year)
+. cap drop pre baseline_wage base_inc base_inc4
+
+. gen byte pre = (post_quake == 0)
+
+. 
+. bys id_worker: egen pre_last_year = max(year) if pre
+(31,407 missing values generated)
+
+. gen double baseline_wage = wage if year == pre_last_year
+(65,722 missing values generated)
+
+. bys id_worker: egen baseline_wage2 = max(baseline_wage)
+(11,569 missing values generated)
+
+. drop baseline_wage pre
+
+. rename baseline_wage2 baseline_wage
+
+. 
+. gen byte base_inc = 1 if baseline_wage < 28000
+(16,721 missing values generated)
+
+. replace base_inc = 2 if inrange(baseline_wage, 28000, 50000)
+(4,059 real changes made)
+
+. replace base_inc = 3 if baseline_wage > 50000
+(12,662 real changes made)
+
+. 
+. gen byte base_inc4 = cond(missing(base_inc), 4, base_inc)
+
+. 
+. label define baseinc4 1 "Low (pre)" 2 "Med (pre)" 3 "High (pre
+> )" 4 "Unknown (pre)"
+
+. label values base_inc4 baseinc4
+
+. label var base_inc4 "Baseline income (4 cats incl. Unknown)"
+
+. 
+. // Joint outcomes: employed AND income category
+. cap drop y_emp_*
+
+. gen byte y_emp_low     = (employed == 1 & income_category == 1
+> )
+
+. gen byte y_emp_med     = (employed == 1 & income_category == 2
+> )
+
+. gen byte y_emp_high    = (employed == 1 & income_category == 3
+> )
+
+. gen byte y_emp_unknown = (employed == 1 & missing(income_categ
+> ory))
+
+. 
+. label var y_emp_low     "Pr(emp ∧ low)"
+
+. label var y_emp_med     "Pr(emp ∧ med)"
+
+. label var y_emp_high    "Pr(emp ∧ high)"
+
+. label var y_emp_unknown "Pr(emp ∧ unknown)"
+
+. 
+. *============================*
+. *    REGRESSION ANALYSES     *
+. *============================*
+. local outcomes employed wage lnwage
+
+. local absorb_spec absorb(year region_res) vce(cluster id_worke
+> r)
+
+. 
+. // (A) Region-based DiD
+. foreach y of local outcomes {
+  2.     qui count if !missing(`y')
+  3.     if r(N) > 0 {
+  4.         eststo A_`y': reghdfe `y' i.post_quake##i.treat_qua
+> ke, `absorb_spec'
+  5.         estadd local model "A: Region DiD", replace
+  6.         estadd local depvar "`y'", replace
+  7.     }
+  8. }
+(MWFE estimator converged in 3 iterations)
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   1,  16346
+> )                                                             
+>   =       1.29
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.2562
+                                                  R-squared     
+>   =     0.0043
+                                                  Adj R-squared 
+>   =     0.0042
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     16,347       Root MSE      
+>   =     0.3870
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+    employed | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.post_quake |          0  (omitted)
+1.treat_qu~e |          0  (omitted)
+             |
+  post_quake#|
+ treat_quake |
+        1 1  |   -.006029   .0053093    -1.14   0.256    -.01643
+> 58                                                            
+>       .0043779
+             |
+       _cons |   .8164301   .0022766   358.61   0.000     .81196
+> 76                                                            
+>       .8208926
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "A: Region DiD"
+
+added macro:
+             e(depvar) : "employed"
+(MWFE estimator converged in 3 iterations)
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+
+HDFE Linear regression                            Number of obs 
+>   =     64,957
+Absorbing 2 HDFE groups                           F(   1,  15890
+> )                                                             
+>   =       0.48
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.4893
+                                                  R-squared     
+>   =     0.0075
+                                                  Adj R-squared 
+>   =     0.0074
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     15,891       Root MSE      
+>   = 11497.9830
+
+                         (Std. err. adjusted for 15,891 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+        wage | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.post_quake |          0  (omitted)
+1.treat_qu~e |          0  (omitted)
+             |
+  post_quake#|
+ treat_quake |
+        1 1  |   78.25945   113.1877     0.69   0.489    -143.60
+> 12                                                            
+>       300.1201
+             |
+       _cons |      15173   90.64211   167.39   0.000     14995.
+> 33                                                            
+>       15350.67
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "A: Region DiD"
+
+added macro:
+             e(depvar) : "wage"
+(MWFE estimator converged in 3 iterations)
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+
+HDFE Linear regression                            Number of obs 
+>   =     64,957
+Absorbing 2 HDFE groups                           F(   1,  15890
+> )                                                             
+>   =       0.61
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.4354
+                                                  R-squared     
+>   =     0.0075
+                                                  Adj R-squared 
+>   =     0.0074
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     15,891       Root MSE      
+>   =     1.0766
+
+                         (Std. err. adjusted for 15,891 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+      lnwage | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.post_quake |          0  (omitted)
+1.treat_qu~e |          0  (omitted)
+             |
+  post_quake#|
+ treat_quake |
+        1 1  |  -.0111534   .0142979    -0.78   0.435    -.03917
+> 89                                                            
+>       .0168722
+             |
+       _cons |   9.273809   .0071344  1299.87   0.000     9.2598
+> 25                                                            
+>       9.287794
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "A: Region DiD"
+
+added macro:
+             e(depvar) : "lnwage"
+
+. 
+. // (B) Employment type LPM DiD
+. foreach y in y_private y_public y_self {
+  2.     eststo B_`y': reghdfe `y' i.treat_quake##i.post_quake, 
+> `absorb_spec'
+  3.     estadd local model "B: Type-specific LPM DiD", replace
+  4.     estadd local depvar "`y'", replace
+  5.     
+.     qui margins treat_quake#post_quake
+  6.     qui lincom 1.treat_quake#1.post_quake
+  7. }
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   1,  16346
+> )                                                             
+>   =       2.28
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.1308
+                                                  R-squared     
+>   =     0.0025
+                                                  Adj R-squared 
+>   =     0.0024
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     16,347       Root MSE      
+>   =     0.4884
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+   y_private | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |  -.0081415   .0053876    -1.51   0.131    -.01870
+> 17                                                            
+>       .0024188
+             |
+       _cons |   .6055591   .0033085   183.03   0.000      .5990
+> 74                                                            
+>       .6120442
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "B: Type-specific LPM DiD"
+
+added macro:
+             e(depvar) : "y_private"
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   1,  16346
+> )                                                             
+>   =       3.60
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.0577
+                                                  R-squared     
+>   =     0.0002
+                                                  Adj R-squared 
+>   =     0.0001
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     16,347       Root MSE      
+>   =     0.3182
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+    y_public | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |   .0034021   .0017927     1.90   0.058    -.00011
+> 18                                                            
+>        .006916
+             |
+       _cons |   .1138985   .0024324    46.83   0.000     .10913
+> 06                                                            
+>       .1186663
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "B: Type-specific LPM DiD"
+
+added macro:
+             e(depvar) : "y_public"
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   1,  16346
+> )                                                             
+>   =       0.16
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.6858
+                                                  R-squared     
+>   =     0.0011
+                                                  Adj R-squared 
+>   =     0.0011
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     16,347       Root MSE      
+>   =     0.2955
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+      y_self | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |  -.0012896   .0031876    -0.40   0.686    -.00753
+> 76                                                            
+>       .0049584
+             |
+       _cons |   .0969725   .0021018    46.14   0.000     .09285
+> 28                                                            
+>       .1010923
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "B: Type-specific LPM DiD"
+
+added macro:
+             e(depvar) : "y_self"
+
+. 
+. // (D) Baseline income heterogeneity
+. eststo D_pooled: reghdfe employed i.treat_quake##i.post_quake#
+> #i.base_inc4, `absorb_spec'
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   9,  16346
+> )                                                             
+>   =     987.77
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.0000
+                                                  R-squared     
+>   =     0.2265
+                                                  Adj R-squared 
+>   =     0.2264
+                                                  Within R-sq.  
+>   =     0.2232
+Number of clusters (id_worker) =     16,347       Root MSE      
+>   =     0.3411
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+    employed | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |  -.0033552   .0056332    -0.60   0.551    -.01439
+> 68                                                            
+>       .0076864
+             |
+   base_inc4 |
+  Med (pre)  |   .0968907   .0043832    22.11   0.000     .08829
+> 92                                                            
+>       .1054822
+ High (pre)  |  -.4682363   .0074835   -62.57   0.000    -.48290
+> 48                                                            
+>      -.4535677
+             |
+ treat_quake#|
+   base_inc4 |
+1#Med (pre)  |  -.0128275   .0074445    -1.72   0.085    -.02741
+> 94                                                            
+>       .0017644
+          1 #|
+ High (pre)  |   .0038962   .0126164     0.31   0.757    -.02083
+> 34                                                            
+>       .0286258
+             |
+  post_quake#|
+   base_inc4 |
+1#Med (pre)  |   -.002939   .0070946    -0.41   0.679    -.01684
+> 51                                                            
+>       .0109671
+          1 #|
+ High (pre)  |  -.0563347   .0110835    -5.08   0.000    -.07805
+> 96                                                            
+>      -.0346098
+             |
+ treat_quake#|
+  post_quake#|
+   base_inc4 |
+          1 #|
+          1 #|
+  Med (pre)  |  -.0072182   .0117201    -0.62   0.538    -.03019
+> 09                                                            
+>       .0157545
+          1 #|
+          1 #|
+ High (pre)  |  -.0148036    .018399    -0.80   0.421    -.05086
+> 76                                                            
+>       .0212604
+             |
+       _cons |   .8894989   .0018518   480.34   0.000     .88586
+> 91                                                            
+>       .8931287
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+. estadd local model "D: Baseline income DDD", replace
+
+added macro:
+              e(model) : "D: Baseline income DDD"
+
+. estadd local depvar "employed", replace
+
+added macro:
+             e(depvar) : "employed"
+
+. 
+. forvalues c = 1/3 {
+  2.     eststo D_bin`c': reghdfe employed i.treat_quake##i.post
+> _quake if base_inc == `c', `absorb_spec'
+  3.     estadd local model "D: DiD within baseline bin `c'", re
+> place
+  4.     estadd local depvar "employed", replace
+  5.     
+.     qui margins treat_quake#post_quake
+  6.     qui lincom 1.treat_quake#1.post_quake
+  7. }
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =     62,923
+Absorbing 2 HDFE groups                           F(   1,  12877
+> )                                                             
+>   =       0.36
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.5482
+                                                  R-squared     
+>   =     0.0445
+                                                  Adj R-squared 
+>   =     0.0445
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     12,878       Root MSE      
+>   =     0.3070
+
+                         (Std. err. adjusted for 12,878 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+    employed | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |   -.003382   .0056318    -0.60   0.548    -.01442
+> 11                                                            
+>       .0076571
+             |
+       _cons |    .889507   .0018516   480.39   0.000     .88587
+> 75                                                            
+>       .8931364
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "D: DiD within baseline bin 1"
+
+added macro:
+             e(depvar) : "employed"
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =      4,059
+Absorbing 2 HDFE groups                           F(   1,    822
+> )                                                             
+>   =       1.06
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.3045
+                                                  R-squared     
+>   =     0.0117
+                                                  Adj R-squared 
+>   =     0.0103
+                                                  Within R-sq.  
+>   =     0.0003
+Number of clusters (id_worker) =        823       Root MSE      
+>   =     0.1433
+
+                            (Std. err. adjusted for 823 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+    employed | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |  -.0105723   .0102899    -1.03   0.305    -.03076
+> 98                                                            
+>       .0096251
+             |
+       _cons |   .9804613   .0030053   326.24   0.000     .97456
+> 22                                                            
+>       .9863603
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "D: DiD within baseline bin 2"
+
+added macro:
+             e(depvar) : "employed"
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =     12,662
+Absorbing 2 HDFE groups                           F(   1,   2645
+> )                                                             
+>   =       0.94
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.3322
+                                                  R-squared     
+>   =     0.1534
+                                                  Adj R-squared 
+>   =     0.1530
+                                                  Within R-sq.  
+>   =     0.0001
+Number of clusters (id_worker) =      2,646       Root MSE      
+>   =     0.4506
+
+                          (Std. err. adjusted for 2,646 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+    employed | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |  -.0170224   .0175519    -0.97   0.332    -.05143
+> 93                                                            
+>       .0173945
+             |
+       _cons |   .4006081   .0062315    64.29   0.000     .38838
+> 89                                                            
+>       .4128273
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "D: DiD within baseline bin 3"
+
+added macro:
+             e(depvar) : "employed"
+
+. 
+. // (E) Joint outcomes DiD
+. foreach y in y_emp_low y_emp_med y_emp_high y_emp_unknown {
+  2.     eststo E_`y': reghdfe `y' i.treat_quake##i.post_quake, 
+> `absorb_spec'
+  3.     estadd local model "E: Joint outcome DiD", replace
+  4.     estadd local depvar "`y'", replace
+  5.     
+.     qui margins treat_quake#post_quake
+  6.     qui lincom 1.treat_quake#1.post_quake
+  7. }
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   1,  16346
+> )                                                             
+>   =       3.11
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.0778
+                                                  R-squared     
+>   =     0.0041
+                                                  Adj R-squared 
+>   =     0.0040
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     16,347       Root MSE      
+>   =     0.4328
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+   y_emp_low | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |  -.0102824   .0058291    -1.76   0.078    -.02170
+> 81                                                            
+>       .0011433
+             |
+       _cons |   .7503623    .002618   286.61   0.000     .74523
+> 07                                                            
+>       .7554939
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "E: Joint outcome DiD"
+
+added macro:
+             e(depvar) : "y_emp_low"
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   1,  16346
+> )                                                             
+>   =       0.62
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.4308
+                                                  R-squared     
+>   =     0.0040
+                                                  Adj R-squared 
+>   =     0.0039
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     16,347       Root MSE      
+>   =     0.2239
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+   y_emp_med | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |   .0022372   .0028396     0.79   0.431    -.00332
+> 87                                                            
+>       .0078032
+             |
+       _cons |    .052838   .0015005    35.21   0.000     .04989
+> 68                                                            
+>       .0557791
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "E: Joint outcome DiD"
+
+added macro:
+             e(depvar) : "y_emp_med"
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   1,  16346
+> )                                                             
+>   =       3.54
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.0599
+                                                  R-squared     
+>   =     0.0002
+                                                  Adj R-squared 
+>   =     0.0001
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     16,347       Root MSE      
+>   =     0.1154
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+  y_emp_high | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |   .0020162   .0010716     1.88   0.060    -.00008
+> 43                                                            
+>       .0041167
+             |
+       _cons |   .0132298    .000828    15.98   0.000     .01160
+> 68                                                            
+>       .0148528
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "E: Joint outcome DiD"
+
+added macro:
+             e(depvar) : "y_emp_high"
+(MWFE estimator converged in 3 iterations)
+note: 1bn.treat_quake is probably collinear with the fixed effec
+> ts (all partialled-out values are close to zero; tol = 1.0e-09
+> )
+note: 1bn.post_quake is probably collinear with the fixed effect
+> s (all partialled-out values are close to zero; tol = 1.0e-09)
+warning: missing F statistic; dropped variables due to collinear
+> ity or too few clusters
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   1,  16346
+> )                                                             
+>   =          .
+Statistics robust to heteroskedasticity           Prob > F      
+>   =          .
+                                                  Root MSE      
+>   =     0.0000
+Number of clusters (id_worker) =     16,347
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+y_emp_unkn~n | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+1.treat_qu~e |          0  (omitted)
+1.post_quake |          0  (omitted)
+             |
+ treat_quake#|
+  post_quake |
+        1 1  |          0  (omitted)
+             |
+       _cons |          0  (omitted)
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "E: Joint outcome DiD"
+
+added macro:
+             e(depvar) : "y_emp_unknown"
+
+. 
+. *============================*
+. *   EVENT STUDY (DYNAMIC)    *
+. *============================*
+. // Event study program
+. cap program drop _evtstore
+
+. program define _evtstore
+  1.     syntax, Filepath(string)
+  2.     parmest, norestore
+  3.     keep if strpos(parm, "event_") == 1
+  4.     
+.     gen str10 rel_str = subinstr(parm, "event_", "", 1)
+  5.     replace rel_str = subinstr(rel_str, "m", "-", 1)
+  6.     gen rel = real(rel_str)
+  7.     
+.     rename (estimate min95 max95) (beta ci_lo ci_hi)
+  8.     keep rel beta ci_lo ci_hi
+  9.     sort rel
+ 10.     
+.     export delimited using "`filepath'", replace
+ 11. end
+
+. 
+. // Run event studies - preserve for each outcome
+. cap mkdir "$OUT"
+
+. foreach y of local outcomes {
+  2.     preserve
+  3.     keep if inrange(rel_year, -5, 5)
+  4.     
+.     // Generate event dummies (omitting -1)
+.     cap drop event_*
+  5.     forval k = -5/5 {
+  6.         if `k' != -1 {
+  7.             local suffix = cond(`k' < 0, "m" + string(abs(`
+> k')), string(`k'))
+  8.             gen byte event_`suffix' = (rel_year == `k' & tr
+> eat_quake == 1)
+  9.         }
+ 10.     }
+ 11.     
+.     cap confirm variable `y'
+ 12.     if !_rc {
+ 13.         qui count if !missing(`y')
+ 14.         if r(N) > 0 {
+ 15.             eststo C_`y': reghdfe `y' event_*, `absorb_spec
+> '
+ 16.             estadd local model "C: Dynamic DiD", replace
+ 17.             estadd local depvar "`y'", replace
+ 18.             
+.             qui _evtstore, filepath("$OUT/eventstudy_`y'.csv")
+ 19.             
+.             cap coefplot, keep(event_*) vertical xline(0, lp(d
+> ash)) ///
+>                 ciopts(recast(rcap)) title("Event study: `y'")
+>  ///
+>                 ytitle("Effect vs rel_year=-1") xtitle("Relati
+> ve year")
+ 20.             if !_rc graph export "$OUT/eventstudy_`y'.png",
+>  replace
+ 21.         }
+ 22.     }
+ 23.     restore
+ 24. }
+(0 observations deleted)
+(MWFE estimator converged in 3 iterations)
+note: event_m5 omitted because of collinearity
+note: event_m4 omitted because of collinearity
+note: event_m3 omitted because of collinearity
+note: event_3 omitted because of collinearity
+note: event_4 omitted because of collinearity
+note: event_5 omitted because of collinearity
+
+HDFE Linear regression                            Number of obs 
+>   =     79,644
+Absorbing 2 HDFE groups                           F(   4,  16346
+> )                                                             
+>   =       1.03
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.3899
+                                                  R-squared     
+>   =     0.0043
+                                                  Adj R-squared 
+>   =     0.0042
+                                                  Within R-sq.  
+>   =     0.0001
+Number of clusters (id_worker) =     16,347       Root MSE      
+>   =     0.3870
+
+                         (Std. err. adjusted for 16,347 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+    employed | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+    event_m5 |          0  (omitted)
+    event_m4 |          0  (omitted)
+    event_m3 |          0  (omitted)
+    event_m2 |   .0042407   .0068541     0.62   0.536    -.00919
+> 41                                                            
+>       .0176755
+     event_0 |  -.0103107   .0068591    -1.50   0.133    -.02375
+> 53                                                            
+>        .003134
+     event_1 |  -.0102869   .0071768    -1.43   0.152    -.02435
+> 42                                                            
+>       .0037805
+     event_2 |  -.0057396   .0075078    -0.76   0.445    -.02045
+> 57                                                            
+>       .0089766
+     event_3 |          0  (omitted)
+     event_4 |          0  (omitted)
+     event_5 |          0  (omitted)
+       _cons |   .8171358   .0026576   307.47   0.000     .81192
+> 66                                                            
+>       .8223451
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "C: Dynamic DiD"
+
+added macro:
+             e(depvar) : "employed"
+file
+    /Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/outp
+    > ut/eventstudy_employed.png saved as PNG format
+(0 observations deleted)
+(MWFE estimator converged in 3 iterations)
+note: event_m5 omitted because of collinearity
+note: event_m4 omitted because of collinearity
+note: event_m3 omitted because of collinearity
+note: event_3 omitted because of collinearity
+note: event_4 omitted because of collinearity
+note: event_5 omitted because of collinearity
+
+HDFE Linear regression                            Number of obs 
+>   =     64,957
+Absorbing 2 HDFE groups                           F(   4,  15890
+> )                                                             
+>   =       1.07
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.3704
+                                                  R-squared     
+>   =     0.0075
+                                                  Adj R-squared 
+>   =     0.0073
+                                                  Within R-sq.  
+>   =     0.0000
+Number of clusters (id_worker) =     15,891       Root MSE      
+>   = 11498.1951
+
+                         (Std. err. adjusted for 15,891 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+        wage | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+    event_m5 |          0  (omitted)
+    event_m4 |          0  (omitted)
+    event_m3 |          0  (omitted)
+    event_m2 |  -23.38341   140.9708    -0.17   0.868    -299.70
+> 21                                                            
+>       252.9353
+     event_0 |  -62.15454     136.45    -0.46   0.649    -329.61
+> 19                                                            
+>       205.3028
+     event_1 |    160.152   146.1522     1.10   0.273    -126.32
+> 29                                                            
+>       446.6268
+     event_2 |  -65.33194   164.7214    -0.40   0.692    -388.20
+> 45                                                            
+>       257.5406
+     event_3 |          0  (omitted)
+     event_4 |          0  (omitted)
+     event_5 |          0  (omitted)
+       _cons |   15183.24   94.61691   160.47   0.000     14997.
+> 78                                                            
+>        15368.7
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "C: Dynamic DiD"
+
+added macro:
+             e(depvar) : "wage"
+file
+    /Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/outp
+    > ut/eventstudy_wage.png saved as PNG format
+(0 observations deleted)
+(MWFE estimator converged in 3 iterations)
+note: event_m5 omitted because of collinearity
+note: event_m4 omitted because of collinearity
+note: event_m3 omitted because of collinearity
+note: event_3 omitted because of collinearity
+note: event_4 omitted because of collinearity
+note: event_5 omitted because of collinearity
+
+HDFE Linear regression                            Number of obs 
+>   =     64,957
+Absorbing 2 HDFE groups                           F(   4,  15890
+> )                                                             
+>   =       2.12
+Statistics robust to heteroskedasticity           Prob > F      
+>   =     0.0752
+                                                  R-squared     
+>   =     0.0075
+                                                  Adj R-squared 
+>   =     0.0074
+                                                  Within R-sq.  
+>   =     0.0001
+Number of clusters (id_worker) =     15,891       Root MSE      
+>   =     1.0766
+
+                         (Std. err. adjusted for 15,891 clusters
+>  in id_worker)
+----------------------------------------------------------------
+> --------------
+             |               Robust
+      lnwage | Coefficient  std. err.      t    P>|t|     [95% c
+> on                                                            
+>   f. interval]
+-------------+--------------------------------------------------
+> --------------
+    event_m5 |          0  (omitted)
+    event_m4 |          0  (omitted)
+    event_m3 |          0  (omitted)
+    event_m2 |  -.0210161   .0220493    -0.95   0.341    -.06423
+> 53                                                            
+>        .022203
+     event_0 |  -.0169496   .0209574    -0.81   0.419    -.05802
+> 84                                                            
+>       .0241292
+     event_1 |   .0021026   .0209512     0.10   0.920    -.03896
+> 42                                                            
+>       .0431693
+     event_2 |    -.05042   .0223647    -2.25   0.024    -.09425
+> 73                                                            
+>      -.0065827
+     event_3 |          0  (omitted)
+     event_4 |          0  (omitted)
+     event_5 |          0  (omitted)
+       _cons |   9.278262   .0083412  1112.35   0.000     9.2619
+> 12                                                            
+>       9.294612
+----------------------------------------------------------------
+> --------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+        year |         5           0           5     |
+  region_res |         2           1           1     |
+-----------------------------------------------------+
+
+added macro:
+              e(model) : "C: Dynamic DiD"
+
+added macro:
+             e(depvar) : "lnwage"
+file
+    /Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/outp
+    > ut/eventstudy_lnwage.png saved as PNG format
+
+. 
+. *============================*
+. *      EXPORT RESULTS        *
+. *============================*
+. local star_spec star(* 0.10 ** 0.05 *** 0.01)
+
+. local table_opts replace se r2 ar2 label nonotes b(%9.4f) se(%
+> 9.4f) `star_spec'
+
+. 
+. // Block-specific tables
+. esttab D_pooled D_bin1 D_bin2 D_bin3 using "$OUT/results_D_bas
+> eline_income.txt", ///
+>     `table_opts' title("D — Baseline income heterogeneity")
+(output written to output/results_D_baseline_income.txt)
+
+. 
+. esttab E_y_emp_* using "$OUT/results_E_joint_outcomes.txt", //
+> /
+>     `table_opts' title("E — Joint outcomes: Pr(emp & income bi
+> n)")
+(output written to output/results_E_joint_outcomes.txt)
+
+. 
+. // Master table
+. esttab A_* B_* C_* D_* E_* using "$OUT/results_ALL.txt", ///
+>     `table_opts' nogap nogaps ///
+>     title("A/B/C/D/E — Region DiD, Type LPM, Dynamic, Baseline
+>  Income, Joint Outcomes")
+(output written to output/results_ALL.txt)
+
+. 
+. log close _all
+      name:  <unnamed>
+       log:  /Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_
+> GP/output/empirical_00_04.log
+  log type:  text
+ closed on:  17 Nov 2025, 12:07:12
+----------------------------------------------------------------

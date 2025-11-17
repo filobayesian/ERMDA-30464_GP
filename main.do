@@ -9,7 +9,7 @@ global OUT  "output"
 cap mkdir "$OUT"
 
 log close _all
-cap log using "$OUT/empirical_99_06.log", replace text
+cap log using "$OUT/empirical_00_04.log", replace text
 
 *============================*
 * PACKAGE INSTALLATION       *
