@@ -3,10 +3,10 @@ D — Baseline income heterogeneity
                               (1)             (2)             (3)             (4)   
                      Any employ~)    Any employ~)    Any employ~)    Any employ~)   
 ------------------------------------------------------------------------------------
-Molise resident=0          0.0000          0.0000          0.0000          0.0000   
+Control                    0.0000          0.0000          0.0000          0.0000   
                               (.)             (.)             (.)             (.)   
 
-Molise resident=1          0.0000          0.0000          0.0000          0.0000   
+Molise                     0.0000          0.0000          0.0000          0.0000   
                               (.)             (.)             (.)             (.)   
 
 Post 2003=0                0.0000          0.0000          0.0000          0.0000   
@@ -15,44 +15,44 @@ Post 2003=0                0.0000          0.0000          0.0000          0.000
 Post 2003=1                0.0000          0.0000          0.0000          0.0000   
                               (.)             (.)             (.)             (.)   
 
-Molise resident=0 ~0       0.0000          0.0000          0.0000          0.0000   
+Control # Post 200~0       0.0000          0.0000          0.0000          0.0000   
                               (.)             (.)             (.)             (.)   
 
-Molise resident=0 ~1       0.0000          0.0000          0.0000          0.0000   
+Control # Post 200~1       0.0000          0.0000          0.0000          0.0000   
                               (.)             (.)             (.)             (.)   
 
-Molise resident=1 ~0       0.0000          0.0000          0.0000          0.0000   
+Molise # Post 2003=0       0.0000          0.0000          0.0000          0.0000   
                               (.)             (.)             (.)             (.)   
 
-Molise resident=1 ~1      -0.0034         -0.0034         -0.0106         -0.0170   
-                         (0.0056)        (0.0056)        (0.0103)        (0.0176)   
+Molise # Post 2003=1      -0.0117**       -0.0118**       -0.0437***      -0.0166   
+                         (0.0058)        (0.0058)        (0.0136)        (0.0164)   
 
 Low (pre)                  0.0000                                                   
                               (.)                                                   
 
-Med (pre)                  0.0969***                                                
-                         (0.0044)                                                   
+Med (pre)                  0.1367***                                                
+                         (0.0067)                                                   
 
-High (pre)                -0.4682***                                                
-                         (0.0075)                                                   
+High (pre)                -0.3159***                                                
+                         (0.0068)                                                   
 
-Molise resident=0 ~)       0.0000                                                   
+Control # Low (pre)        0.0000                                                   
                               (.)                                                   
 
-Molise resident=0 ~)       0.0000                                                   
+Control # Med (pre)        0.0000                                                   
                               (.)                                                   
 
-Molise resident=0 ~)       0.0000                                                   
+Control # High (pre)       0.0000                                                   
                               (.)                                                   
 
-Molise resident=1 ~)       0.0000                                                   
+Molise # Low (pre)         0.0000                                                   
                               (.)                                                   
 
-Molise resident=1 ~)      -0.0128*                                                  
-                         (0.0074)                                                   
+Molise # Med (pre)        -0.0156                                                   
+                         (0.0105)                                                   
 
-Molise resident=1 ~)       0.0039                                                   
-                         (0.0126)                                                   
+Molise # High (pre)        0.0078                                                   
+                         (0.0113)                                                   
 
 Post 2003=0 # Low ~)       0.0000                                                   
                               (.)                                                   
@@ -66,52 +66,52 @@ Post 2003=0 # High~)       0.0000
 Post 2003=1 # Low ~)       0.0000                                                   
                               (.)                                                   
 
-Post 2003=1 # Med ~)      -0.0029                                                   
-                         (0.0071)                                                   
+Post 2003=1 # Med ~)      -0.0346***                                                
+                         (0.0086)                                                   
 
-Post 2003=1 # High~)      -0.0563***                                                
-                         (0.0111)                                                   
+Post 2003=1 # High~)      -0.1507***                                                
+                         (0.0104)                                                   
 
-Molise resident=0~0        0.0000                                                   
+Control # Post 200~e       0.0000                                                   
                               (.)                                                   
 
-Molise resident=0~0        0.0000                                                   
+Control # Post 200~e       0.0000                                                   
                               (.)                                                   
 
-Molise resident=0~0        0.0000                                                   
+Control # Post 200~r       0.0000                                                   
                               (.)                                                   
 
-Molise resident=0~1        0.0000                                                   
+Control # Post 200~e       0.0000                                                   
                               (.)                                                   
 
-Molise resident=0~1        0.0000                                                   
+Control # Post 200~e       0.0000                                                   
                               (.)                                                   
 
-Molise resident=0~1        0.0000                                                   
+Control # Post 200~r       0.0000                                                   
                               (.)                                                   
 
-Molise resident=1~0        0.0000                                                   
+Molise # Post 2003~)       0.0000                                                   
                               (.)                                                   
 
-Molise resident=1~0        0.0000                                                   
+Molise # Post 2003~)       0.0000                                                   
                               (.)                                                   
 
-Molise resident=1~0        0.0000                                                   
+Molise # Post 2003~e       0.0000                                                   
                               (.)                                                   
 
-Molise resident=1~1        0.0000                                                   
+Molise # Post 2003~)       0.0000                                                   
                               (.)                                                   
 
-Molise resident=1~1       -0.0072                                                   
-                         (0.0117)                                                   
+Molise # Post 2003~)      -0.0322**                                                 
+                         (0.0148)                                                   
 
-Molise resident=1~1       -0.0148                                                   
-                         (0.0184)                                                   
+Molise # Post 2003~e      -0.0058                                                   
+                         (0.0175)                                                   
 
-Constant                   0.8895***       0.8895***       0.9805***       0.4006***
-                         (0.0019)        (0.0019)        (0.0030)        (0.0062)   
+Constant                   0.8424***       0.8425***       0.9580***       0.4643***
+                         (0.0021)        (0.0021)        (0.0040)        (0.0058)   
 ------------------------------------------------------------------------------------
-Observations                79644           62923            4059           12662   
-R-squared                   0.227           0.045           0.012           0.153   
-Adjusted R-squared          0.226           0.044           0.010           0.153   
+Observations               142008          112269            7235           22504   
+R-squared                   0.139           0.055           0.032           0.126   
+Adjusted R-squared          0.139           0.055           0.030           0.126   
 ------------------------------------------------------------------------------------
