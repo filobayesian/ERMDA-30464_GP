@@ -2027,9 +2027,9 @@ added macro:
 note: 1bn.post_quake is probably collinear with the fixed effects (all partialled-out values are close to zero; tol = 1.0e-09)
 
 HDFE Linear regression                            Number of obs   =    126,545
-Absorbing 2 HDFE groups                           F(   2,  26925) =       0.79
-Statistics robust to heteroskedasticity           Prob > F        =     0.4533
-                                                  R-squared       =     0.0009
+Absorbing 2 HDFE groups                           F(   2,  26925) =       2.20
+Statistics robust to heteroskedasticity           Prob > F        =     0.1105
+                                                  R-squared       =     0.0010
                                                   Adj R-squared   =     0.0009
                                                   Within R-sq.    =     0.0000
 Number of clusters (id_worker) =     26,926       Root MSE        =     0.4987
@@ -2040,12 +2040,12 @@ Number of clusters (id_worker) =     26,926       Root MSE        =     0.4987
                employed | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
 ------------------------+----------------------------------------------------------------
            1.post_quake |          0  (omitted)
-         1.random_treat |  -.0039048   .0036448    -1.07   0.284    -.0110488    .0032391
+         1.random_treat |   -.007202   .0036357    -1.98   0.048    -.0143281   -.0000759
                         |
 post_quake#random_treat |
-                   1 1  |   .0009453   .0056992     0.17   0.868    -.0102255    .0121161
+                   1 1  |   .0102523   .0057235     1.79   0.073    -.0009661    .0214706
                         |
-                  _cons |   .5345729   .0030506   175.23   0.000     .5285936    .5405523
+                  _cons |    .534347   .0030473   175.35   0.000     .5283742    .5403199
 -----------------------------------------------------------------------------------------
 
 Absorbed degrees of freedom:
@@ -2107,7 +2107,7 @@ added macro:
 . 
 . log close _all
       name:  <unnamed>
-       log:  /Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/output/empirical_final_00_04_abruzzo.log
+       log:  /Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/output/empirical_final_final_00_04.log
   log type:  text
- closed on:  26 Nov 2025, 11:23:19
+ closed on:  26 Nov 2025, 11:26:30
 ---------------------------------------------------------------------------------------------------------------------------------------------

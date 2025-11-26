@@ -23,7 +23,7 @@ foreach pkg of local packages {
 *============================*
 *       LOAD DATA            *
 *============================*
-local regions molise abruzzo
+local regions molise basilicata
 local first = 1
 foreach r of local regions {
     if `first' {
