@@ -9,7 +9,7 @@ global OUT  "output"
 cap mkdir "$OUT"
 
 log close _all
-cap log using "$OUT/empirical_final_00_04.log", replace text
+cap log using "$OUT/empirical_final_00_04_withoutemploymentfiltering.log", replace text
 
 *============================*
 * PACKAGE INSTALLATION       *
@@ -23,7 +23,7 @@ foreach pkg of local packages {
 *============================*
 *       LOAD DATA            *
 *============================*
-local regions molise basilicata
+local regions molise abruzzo
 local first = 1
 foreach r of local regions {
     if `first' {
@@ -65,7 +65,7 @@ label var employed "Any employment"
 
 *--- Cohort Filtering ---*
 preserve
-keep if inlist(year, 1999, 2000, 2001) & employed == 1
+* keep if inlist(year, 1999, 2000, 2001) & employed == 1
 keep id_worker
 duplicates drop
 di "Cohort size: " _N
@@ -187,7 +187,7 @@ twoway ///
  (line mean_emp_rel year if treat_quake==0, lcolor(blue) m(o)) ///
  (line mean_emp_rel year if treat_quake==1, lcolor(red) m(o)), ///
  ytitle("Employment (Δ vs 2000)") xtitle("Year") ///
- xline(2002.5, lpattern(dash) lcolor(black)) ///  // Earthquake was Oct 2002
+ xline(2002.8, lpattern(dash) lcolor(black)) ///  // Earthquake was Oct 2002
  legend(order(1 "Control" 2 "Molise") pos(6) rows(1)) ///
  title("Difference-index trajectories: Employment") ///
  xlabel(2000(1)2004) ///

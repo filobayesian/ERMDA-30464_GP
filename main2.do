@@ -9,7 +9,7 @@ global OUT  "output"
 cap mkdir "$OUT"
 
 log close _all
-cap log using "$OUT/empirical_final_00_04.log", replace text
+cap log using "$OUT/empirical_final_00_04_abruzzo.log", replace text
 
 *============================*
 * PACKAGE INSTALLATION       *
@@ -23,7 +23,7 @@ foreach pkg of local packages {
 *============================*
 *       LOAD DATA            *
 *============================*
-local regions molise basilicata
+local regions molise abruzzo
 local first = 1
 foreach r of local regions {
     if `first' {
@@ -65,7 +65,7 @@ label var employed "Any employment"
 
 *--- Cohort Filtering ---*
 preserve
-keep if inlist(year, 1999, 2000, 2001) & employed == 1
+* keep if inlist(year, 1999, 2000, 2001) & employed == 1
 keep id_worker
 duplicates drop
 di "Cohort size: " _N
