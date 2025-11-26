@@ -1,0 +1,520 @@
+clear all
+set more off, permanently
+
+*============================*
+*          SETUP             *
+*============================*
+global DATA ""           
+global OUT  "output"          
+cap mkdir "$OUT"
+
+log close _all
+cap log using "$OUT/empirical_final_00_04.log", replace text
+
+*============================*
+* PACKAGE INSTALLATION       *
+*============================*
+local packages ftools reghdfe estout coefplot parmest
+foreach pkg of local packages {
+    cap which `pkg'
+    if _rc ssc install `pkg', replace
+}
+
+*============================*
+*       LOAD DATA            *
+*============================*
+local regions molise basilicata
+local first = 1
+foreach r of local regions {
+    if `first' {
+        use "Data/non_derived/`r'.dta", clear
+        local first = 0
+    }
+    else append using "Data/non_derived/`r'.dta"
+}
+
+*============================*
+*  DATA CLEANING & ENGINEERING *
+*============================*
+
+keep id_worker year gender type wage contract_type sector_12cat region_res year_birth
+
+destring region_res, replace
+
+* For each worker, find their region (use mode in case of moves)
+bysort id_worker: egen region_filled = mode(region_res), maxmode
+replace region_res = region_filled if missing(region_res)
+drop region_filled
+
+* Verify the fix
+di _n "=== VERIFY: Unemployed workers now have region ===" _n
+tab type region_res if type == 4
+
+*--- Treatment Variables ---*
+gen byte treat_quake = (region_res == 12)
+label var treat_quake "Molise resident"
+
+*--- Wage Processing ---*
+destring wage, replace force
+label var wage "Annual wage (€)"
+
+*--- Employment Indicator ---*
+gen byte employed = (wage > 0 & !missing(wage)) | (type != 4 & !missing(type))
+replace employed = . if missing(wage) & missing(type)
+label var employed "Any employment"
+
+*--- Cohort Filtering ---*
+preserve
+keep if inlist(year, 1999, 2000, 2001) & employed == 1
+keep id_worker
+duplicates drop
+di "Cohort size: " _N
+tempfile cohort_workers
+save `cohort_workers'
+restore
+
+merge m:1 id_worker using `cohort_workers', keep(match) nogen
+keep if inrange(year, 2000, 2004)
+*--- Post-treatment indicator ---*
+gen byte post_quake = (year >= 2003)
+label var post_quake "Post 2003"
+
+gen rel_year = year - 2002
+label var rel_year "Year - 2002"
+
+*--- Age calculation and age groups ---*
+gen age = year - year_birth
+label var age "Age in given year"
+
+gen byte age_group = .
+replace age_group = 1 if age <= 34 & !missing(age)
+replace age_group = 2 if age >= 35 & age <= 55 & !missing(age)
+replace age_group = 3 if age >= 56 & !missing(age)
+
+label define age_grp 1 "≤34" 2 "35-55" 3 "≥56"
+label values age_group age_grp
+label var age_group "Age group"
+
+*--- Worker-level average wage ---*
+bysort id_worker: egen avg_wage_worker = mean(wage)
+label var avg_wage_worker "Worker-level average wage"
+
+*--- Worker-level Income Category ---*
+gen byte income_category_worker = .
+replace income_category_worker = 1 if avg_wage_worker < 28000 & !missing(avg_wage_worker)
+replace income_category_worker = 2 if avg_wage_worker >= 28000 & avg_wage_worker <= 50000
+replace income_category_worker = 3 if avg_wage_worker > 50000 & !missing(avg_wage_worker)
+
+label define inc_cat_w 1 "Low" 2 "Medium" 3 "High"
+label values income_category_worker inc_cat_w
+label var income_category_worker "Income category (worker avg)"
+
+*--- Current Income Category ---*
+gen byte income_category = .
+replace income_category = 1 if wage < 28000 & !missing(wage)
+replace income_category = 2 if inrange(wage, 28000, 50000)
+replace income_category = 3 if wage > 50000
+
+label define inc3 1 "Low" 2 "Medium" 3 "High"
+label values income_category inc3
+label var income_category "Income category (current year)"
+
+*--- Baseline Income ---*
+gen byte pre = (post_quake == 0)
+bys id_worker: egen pre_last_year = max(year) if pre
+gen double baseline_wage = wage if year == pre_last_year
+bys id_worker: egen baseline_wage_final = max(baseline_wage)
+drop baseline_wage pre pre_last_year
+rename baseline_wage_final baseline_wage
+label var baseline_wage "Baseline wage (last pre-quake year)"
+
+gen byte base_inc = 1 if baseline_wage < 28000 & !missing(baseline_wage)
+replace base_inc = 2 if inrange(baseline_wage, 28000, 50000)
+replace base_inc = 3 if baseline_wage > 50000 & !missing(baseline_wage)
+
+gen byte base_inc4 = cond(missing(base_inc), 4, base_inc)
+label define baseinc4 1 "Low (pre)" 2 "Med (pre)" 3 "High (pre)" 4 "Unknown (pre)"
+label values base_inc4 baseinc4
+label var base_inc4 "Baseline income (4 cats incl. Unknown)"
+
+*--- Employment Type Dummies ---*
+gen byte y_private = (type == 1) if !missing(type)
+gen byte y_public  = (type == 2) if !missing(type)
+gen byte y_self    = (type == 3) if !missing(type)
+
+label var y_private "Private employment (Pr)"
+label var y_public  "Public employment (Pr)"
+label var y_self    "Self-employment (Pr)"
+
+*--- Log wage ---*
+gen double lnwage = ln(wage + 1)
+label var lnwage "Log(wage + 1)"
+
+*--- Joint outcomes ---*
+gen byte y_emp_low     = (employed == 1 & income_category_worker == 1)
+gen byte y_emp_med     = (employed == 1 & income_category_worker == 2)
+gen byte y_emp_high    = (employed == 1 & income_category_worker == 3)
+gen byte y_emp_unknown = (employed == 1 & missing(income_category_worker))
+
+label var y_emp_low     "Pr(emp ∧ low avg)"
+label var y_emp_med     "Pr(emp ∧ med avg)"
+label var y_emp_high    "Pr(emp ∧ high avg)"
+label var y_emp_unknown "Pr(emp ∧ unknown avg)"
+
+*--- Labels ---*
+label define trt 0 "Control" 1 "Molise"
+label values treat_quake trt
+
+
+*============================*
+*  BASELINE TRAJECTORY PLOTS *
+*============================*
+
+*--- Overall: Employment and Earnings (Δ vs 2001) ---*
+preserve
+keep year treat_quake employed wage
+drop if missing(year) | missing(treat_quake)
+collapse (mean) mean_emp=employed mean_earn=wage, by(treat_quake year)
+
+* Use 2000 as baseline (first year of analysis window)
+bys treat_quake: egen base_emp  = total(mean_emp  * (year==2000))
+bys treat_quake: egen base_earn = total(mean_earn * (year==2000))
+
+gen mean_emp_rel  = mean_emp  - base_emp
+gen mean_earn_rel = mean_earn - base_earn
+
+twoway ///
+ (line mean_emp_rel year if treat_quake==0, lcolor(blue) m(o)) ///
+ (line mean_emp_rel year if treat_quake==1, lcolor(red) m(o)), ///
+ ytitle("Employment (Δ vs 2000)") xtitle("Year") ///
+ xline(2002.8, lpattern(dash) lcolor(black)) ///  // Earthquake was Oct 2002
+ legend(order(1 "Control" 2 "Molise") pos(6) rows(1)) ///
+ title("Difference-index trajectories: Employment") ///
+ xlabel(2000(1)2004) ///
+ name(g_emp, replace)
+
+graph export "$OUT/traj_overall_emp_earn.png", replace
+restore
+
+*--- By employment type: Private/Public/Self (Δ vs 2001) ---*
+foreach k in 1 2 3 {
+    if `k'==1 local kname "private"
+    if `k'==2 local kname "public"
+    if `k'==3 local kname "self"
+    
+    preserve
+    keep year treat_quake wage type
+    drop if missing(year) | missing(treat_quake)
+    gen emp_`kname' = (type==`k')
+    gen wage_`kname' = wage if type==`k'
+    collapse (mean) mean_emp=emp_`kname' mean_earn=wage_`kname', by(treat_quake year)
+    bys treat_quake: egen base_emp  = total(mean_emp  * (year==2001))
+    bys treat_quake: egen base_earn = total(mean_earn * (year==2001))
+    gen mean_emp_rel  = mean_emp  - base_emp
+    gen mean_earn_rel = mean_earn - base_earn
+    local K = proper("`kname'")
+    
+    #delimit ;
+    twoway (line mean_emp_rel year if treat_quake==0, msymbol(o))
+           (line mean_emp_rel year if treat_quake==1, msymbol(o)),
+           ytitle("Employment (Δ vs 2001)") xtitle("Year")
+           xline(2002, lpattern(dash))
+           legend(order(1 "Control" 2 "Molise"))
+           title("Difference-index trajectories: Employment (`K')")
+           name("g_emp_`kname'", replace) ;
+    twoway (line mean_earn_rel year if treat_quake==0, msymbol(o))
+           (line mean_earn_rel year if treat_quake==1, msymbol(o)),
+           ytitle("Earnings (Δ vs 2001)") xtitle("Year")
+           xline(2002, lpattern(dash))
+           legend(order(1 "Control" 2 "Molise"))
+           title("Difference-index trajectories: Earnings (`K')")
+           name("g_earn_`kname'", replace) ;
+    graph combine g_emp_`kname' g_earn_`kname', rows(2) imargin(tiny) ;
+    graph export "$OUT/traj_`kname'_emp_earn.png", replace ;
+    #delimit cr
+    restore
+}
+
+*============================*
+*    REGRESSION ANALYSES     *
+*============================*
+local outcomes employed wage lnwage
+local absorb_spec absorb(year region_res) vce(cluster id_worker)
+
+// (A) Region-based DiD
+foreach y of local outcomes {
+    qui count if !missing(`y')
+    if r(N) > 0 {
+        eststo A_`y': reghdfe `y' i.post_quake##i.treat_quake, `absorb_spec'
+        estadd local model "A: Region DiD", replace
+        estadd local depvar "`y'", replace
+    }
+}
+
+// (B) Employment type LPM DiD
+foreach y in y_private y_public y_self {
+    eststo B_`y': reghdfe `y' i.treat_quake##i.post_quake, `absorb_spec'
+    estadd local model "B: Type-specific LPM DiD", replace
+    estadd local depvar "`y'", replace
+    
+    qui margins treat_quake#post_quake
+    qui lincom 1.treat_quake#1.post_quake
+}
+
+// (D) Baseline income heterogeneity
+eststo D_pooled: reghdfe employed i.treat_quake##i.post_quake##i.base_inc4, `absorb_spec'
+estadd local model "D: Baseline income DDD", replace
+estadd local depvar "employed", replace
+
+forvalues c = 1/3 {
+    eststo D_bin`c': reghdfe employed i.treat_quake##i.post_quake if base_inc == `c', `absorb_spec'
+    estadd local model "D: DiD within baseline bin `c'", replace
+    estadd local depvar "employed", replace
+    
+    qui margins treat_quake#post_quake
+    qui lincom 1.treat_quake#1.post_quake
+}
+
+// (E) Joint outcomes DiD (using WORKER AVG income category)
+foreach y in y_emp_low y_emp_med y_emp_high y_emp_unknown {
+    eststo E_`y': reghdfe `y' i.treat_quake##i.post_quake, `absorb_spec'
+    estadd local model "E: Joint outcome DiD", replace
+    estadd local depvar "`y'", replace
+    
+    qui margins treat_quake#post_quake
+    qui lincom 1.treat_quake#1.post_quake
+}
+
+// (F) Age heterogeneity (DDD: treat × post × age_group)
+eststo F_pooled: reghdfe employed i.treat_quake##i.post_quake##i.age_group, `absorb_spec'
+estadd local model "F: Age heterogeneity DDD", replace
+estadd local depvar "employed", replace
+
+forvalues a = 1/3 {
+    eststo F_age`a': reghdfe employed i.treat_quake##i.post_quake if age_group == `a', `absorb_spec'
+    estadd local model "F: DiD within age group `a'", replace
+    estadd local depvar "employed", replace
+    
+    qui margins treat_quake#post_quake
+    qui lincom 1.treat_quake#1.post_quake
+}
+
+// (G) Full 4-way interaction (DDDD: treat × post × base_inc × age_group)
+eststo G_pooled: reghdfe employed i.treat_quake##i.post_quake##i.base_inc##i.age_group, `absorb_spec'
+estadd local model "G: Full DDDD (income × age)", replace
+estadd local depvar "employed", replace
+
+* Subgroup regressions by income and age combinations
+forvalues c = 1/3 {
+    forvalues a = 1/3 {
+        capture eststo G_inc`c'_age`a': reghdfe employed i.treat_quake##i.post_quake ///
+            if base_inc == `c' & age_group == `a', `absorb_spec'
+        if !_rc {
+            estadd local model "G: DiD within inc=`c', age=`a'", replace
+            estadd local depvar "employed", replace
+            
+            qui margins treat_quake#post_quake
+            qui lincom 1.treat_quake#1.post_quake
+        }
+    }
+}
+
+*============================*
+*     PLOTS FOR B, D, F, G   *
+*============================*
+
+// B — Type-specific DiD
+cap coefplot ///
+    (B_y_private, keep(1.treat_quake#1.post_quake) label("Private")) ///
+    (B_y_public,  keep(1.treat_quake#1.post_quake) label("Public")) ///
+    (B_y_self,    keep(1.treat_quake#1.post_quake) label("Self")), ///
+    vertical xline(0, lp(dash)) ciopts(recast(rcap)) ///
+    coeflabels(1.treat_quake#1.post_quake = "Treat×Post") ///
+    title("B — Type-specific DiD") ytitle("Coefficient") xtitle("")
+if !_rc graph export "$OUT/plot_B_types.png", replace
+
+// D — Baseline-income heterogeneity
+cap coefplot ///
+    (D_bin1, keep(1.treat_quake#1.post_quake) label("Low (pre)")) ///
+    (D_bin2, keep(1.treat_quake#1.post_quake) label("Med (pre)")) ///
+    (D_bin3, keep(1.treat_quake#1.post_quake) label("High (pre)")), ///
+    vertical xline(0, lp(dash)) ciopts(recast(rcap)) ///
+    coeflabels(1.treat_quake#1.post_quake = "Treat×Post") ///
+    title("D — DiD within baseline income bins") ytitle("Coefficient") xtitle("")
+if !_rc graph export "$OUT/plot_D_bins.png", replace
+
+// F — Age heterogeneity
+cap coefplot ///
+    (F_age1, keep(1.treat_quake#1.post_quake) label("≤34")) ///
+    (F_age2, keep(1.treat_quake#1.post_quake) label("35-55")) ///
+    (F_age3, keep(1.treat_quake#1.post_quake) label("≥56")), ///
+    vertical xline(0, lp(dash)) ciopts(recast(rcap)) ///
+    coeflabels(1.treat_quake#1.post_quake = "Treat×Post") ///
+    title("F — DiD within age groups") ytitle("Coefficient") xtitle("")
+if !_rc graph export "$OUT/plot_F_age.png", replace
+
+// G — Full DDDD: Income × Age grid
+* Create coefficient plot for all income-age combinations
+local plot_list ""
+local label_list ""
+local counter = 1
+forvalues c = 1/3 {
+    forvalues a = 1/3 {
+        capture confirm variable e(sample) in 1 using G_inc`c'_age`a'
+        if !_rc {
+            local inc_label: label inc3 `c'
+            local age_label: label age_grp `a'
+            local plot_list `"`plot_list' (G_inc`c'_age`a', keep(1.treat_quake#1.post_quake) label("`inc_label', `age_label'"))"'
+            local counter = `counter' + 1
+        }
+    }
+}
+
+cap coefplot `plot_list', ///
+    vertical xline(0, lp(dash)) ciopts(recast(rcap)) ///
+    coeflabels(1.treat_quake#1.post_quake = "Treat×Post") ///
+    title("G — DiD within income × age bins") ytitle("Coefficient") xtitle("") ///
+    xlabel(, angle(45) labsize(vsmall))
+if !_rc graph export "$OUT/plot_G_income_age.png", replace
+
+*============================*
+*   EVENT STUDY (DYNAMIC)    *
+*============================*
+
+cap program drop _evtstore
+program define _evtstore
+    syntax, Filepath(string)
+    parmest, norestore
+    keep if strpos(parm, "event_") == 1
+    
+    gen str10 rel_str = subinstr(parm, "event_", "", 1)
+    replace rel_str = subinstr(rel_str, "m", "-", 1)
+    gen rel = real(rel_str)
+    
+    rename (estimate min95 max95) (beta ci_lo ci_hi)
+    keep rel beta ci_lo ci_hi
+    sort rel
+    
+    export delimited using "`filepath'", replace
+end
+
+foreach y of local outcomes {
+    preserve
+    keep if inrange(rel_year, -5, 5)
+    
+    cap drop event_*
+    forval k = -5/5 {
+        if `k' != 0 {
+            local suffix = cond(`k' < 0, "m" + string(abs(`k')), string(`k'))
+            gen byte event_`suffix' = (rel_year == `k' & treat_quake == 1)
+        }
+    }
+    
+    cap confirm variable `y'
+    if !_rc {
+        qui count if !missing(`y')
+        if r(N) > 0 {
+            eststo C_`y': reghdfe `y' event_*, `absorb_spec'
+            estadd local model "C: Dynamic DiD", replace
+            estadd local depvar "`y'", replace
+            
+            qui _evtstore, filepath("$OUT/eventstudy_`y'.csv")
+            
+            cap coefplot, keep(event_*) vertical yline(0, lp(dash)) ///
+                ciopts(recast(rcap)) title("Event study: `y'") ///
+                ytitle("Effect vs rel_year=0") xtitle("Relative year")
+            if !_rc graph export "$OUT/eventstudy_`y'.png", replace
+        }
+    }
+    restore
+}
+
+*============================*
+* ROBUSTNESS CHECKS          *
+*============================*
+
+// (R1) Different treatment timing (use 2002 vs 2003)
+gen byte post_quake_2002 = (year >= 2002)
+eststo R1: reghdfe employed i.post_quake_2002##i.treat_quake, ///
+    absorb(year region_res) vce(cluster id_worker)
+
+// (R2) Exclude transition year (drop 2002)
+eststo R2: reghdfe employed i.post_quake##i.treat_quake if year != 2002, ///
+    absorb(year region_res) vce(cluster id_worker)
+
+// (R3) Balanced panel only
+bys id_worker: gen n_obs = _N
+eststo R3: reghdfe employed i.post_quake##i.treat_quake if n_obs == 5, ///
+    absorb(year region_res) vce(cluster id_worker)
+
+// (R4) Different wage thresholds for employment
+gen byte employed_alt = (wage > 1000) | (type != 4)
+eststo R4: reghdfe employed_alt i.post_quake##i.treat_quake, ///
+    absorb(year region_res) vce(cluster id_worker)
+
+// (R5) Winsorize wages at 1% and 99%
+egen wage_p1 = pctile(wage), p(1)
+egen wage_p99 = pctile(wage), p(99)
+gen wage_wins = wage
+replace wage_wins = wage_p1 if wage < wage_p1 & !missing(wage)
+replace wage_wins = wage_p99 if wage > wage_p99 & !missing(wage)
+eststo R5: reghdfe wage_wins i.post_quake##i.treat_quake, ///
+    absorb(year region_res) vce(cluster id_worker)
+
+// Export robustness table
+esttab R1 R2 R3 R4 R5 using "$OUT/results_robustness.txt", ///
+    replace se r2 ar2 label nonotes b(%9.4f) se(%9.4f) `star_spec' ///
+    title("Robustness Checks")
+
+*============================*
+*      PLACEBO TESTS         *
+*============================*
+
+// (P1) Placebo treatment year (pretend shock was in 2001)
+gen byte fake_post = (year >= 2001)
+eststo P1: reghdfe employed i.fake_post##i.treat_quake if year <= 2002, ///
+    absorb(year region_res) vce(cluster id_worker)
+estadd local model "P1: Placebo 2001", replace
+drop fake_post
+
+// (P2) Placebo outcome (gender - shouldn't change)
+destring gender, replace force
+eststo P2: reghdfe gender i.post_quake##i.treat_quake, ///
+    absorb(year region_res) vce(cluster id_worker)
+estadd local model "P2: Placebo outcome (gender)", replace
+
+// (P3) Randomization test: assign treatment to random workers
+set seed 12345
+gen random_treat = runiform() > 0.5
+eststo P3: reghdfe employed i.post_quake##i.random_treat, ///
+    absorb(year region_res) vce(cluster id_worker)
+estadd local model "P3: Random treatment", replace
+drop random_treat
+
+// Export placebo results
+cap erase "$OUT/results_placebo.txt"
+esttab P1 P2 P3 using "$OUT/results_placebo.txt", ///
+    `table_opts' title("Placebo Tests")
+*============================*
+*      EXPORT RESULTS        *
+*============================*
+local star_spec star(* 0.10 ** 0.05 *** 0.01)
+local table_opts replace se r2 ar2 label nonotes b(%9.4f) se(%9.4f) `star_spec'
+
+esttab D_pooled D_bin1 D_bin2 D_bin3 using "$OUT/results_D_baseline_income.txt", ///
+    `table_opts' title("D — Baseline income heterogeneity")
+
+esttab E_y_emp_* using "$OUT/results_E_joint_outcomes.txt", ///
+    `table_opts' title("E — Joint outcomes: Pr(emp & worker avg income)")
+
+esttab F_pooled F_age1 F_age2 F_age3 using "$OUT/results_F_age_heterogeneity.txt", ///
+    `table_opts' title("F — Age heterogeneity")
+
+esttab G_pooled G_inc*_age* using "$OUT/results_G_full_DDDD.txt", ///
+    `table_opts' title("G — Full DDDD: Income × Age heterogeneity")
+
+esttab A_* B_* C_* D_* E_* F_* G_* using "$OUT/results_ALL.txt", ///
+    `table_opts' nogap nogaps ///
+    title("A/B/C/D/E/F/G — All Analyses")
+
+log close _all

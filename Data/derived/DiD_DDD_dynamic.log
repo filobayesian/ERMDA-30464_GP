@@ -1,0 +1,86 @@
+
+. *============================*
+. *      PACKAGE CHECKS        *
+. *============================*
+. cap which reghdfe
+
+. if _rc ssc install reghdfe, replace
+
+. cap which ftools
+
+. if _rc ssc install ftools, replace
+
+. cap which estout
+
+. if _rc ssc install estout, replace
+
+. cap which coefplot
+
+. if _rc ssc install coefplot, replace
+
+. cap which parmest
+
+. if _rc ssc install parmest, replace
+
+. 
+. *============================*
+. *       LOAD THE DATA        *
+. *============================*
+. * Use the FILTERED datasets directly (as requested).
+. * >>> EDIT these filenames if your names/paths differ <<<
+. local M_file "derived/molise_filtered.dta" 
+
+. local B_file "derived/basilicata_filtered.dta"
+
+. local P_file "derived/puglia_filtered.dta"
+
+. 
+. use `M_file', clear
+
+. append using `B_file'
+
+. append using `P_file'
+
+. 
+. * Keep only the three regions (safety)
+. keep if inlist(region_res, 2, 12, 16)
+type mismatch
+r(109);
+
+end of do-file
+
+r(109);
+
+. use "/Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/Data/Molise.dta", clear
+(Written by R.              )
+
+. use "/Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/Data/Molise.dta"
+(Written by R.              )
+
+. use "/Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/Data/derived/molise_filtered.dta"
+
+. do "/Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/main.do"
+
+. version 17.0
+
+. clear all
+
+. set more off, permanently
+(set more preference recorded)
+
+. *============================*
+. *          PATHS             *
+. *============================*
+. global DATA ""           
+
+. global OUT  ""          
+
+. cap mkdir "$OUT"
+
+. 
+. log close _all
+      name:  <unnamed>
+       log:  /Users/vittoriogaravelli/GitHub/GitHub/ERMDA-30464_GP/Data/Data/DiD_DDD_dynamic.log
+  log type:  text
+ closed on:   7 Nov 2025, 02:01:04
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
