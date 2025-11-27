@@ -9,7 +9,7 @@ global OUT  "output"
 cap mkdir "$OUT"
 
 log close _all
-cap log using "$OUT/empirical_final_00_04_abruzzo.log", replace text
+cap log using "$OUT/experiments.log", replace text
 
 *============================*
 * PACKAGE INSTALLATION       *
@@ -94,6 +94,15 @@ replace age_group = 3 if age >= 56 & !missing(age)
 label define age_grp 1 "≤34" 2 "35-55" 3 "≥56"
 label values age_group age_grp
 label var age_group "Age group"
+
+*--- Employment rates by age and region ---*
+di _n "=== Employment rates by age group and region ===" _n
+bysort region_res age_group: egen emp_rate = mean(employed)
+table region_res age_group, statistic(mean employed) ///
+                           statistic(frequency) nformat(%9.3f)
+*--- Age group counts by region ---*
+table region_res age_group, statistic(frequency) nototals
+
 
 *--- Worker-level average wage ---*
 bysort id_worker: egen avg_wage_worker = mean(wage)

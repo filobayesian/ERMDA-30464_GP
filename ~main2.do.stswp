@@ -9,7 +9,7 @@ global OUT  "output"
 cap mkdir "$OUT"
 
 log close _all
-cap log using "$OUT/empirical_final_final_00_04.log", replace text
+cap log using "$OUT/experiments.log", replace text
 
 *============================*
 * PACKAGE INSTALLATION       *
@@ -95,6 +95,15 @@ label define age_grp 1 "≤34" 2 "35-55" 3 "≥56"
 label values age_group age_grp
 label var age_group "Age group"
 
+*--- Employment rates by age and region ---*
+di _n "=== Employment rates by age group and region ===" _n
+bysort region_res age_group: egen emp_rate = mean(employed)
+table region_res age_group, statistic(mean employed) ///
+                           statistic(frequency) nformat(%9.3f)
+*--- Age group counts by region ---*
+table region_res age_group, statistic(frequency) nototals
+
+
 *--- Worker-level average wage ---*
 bysort id_worker: egen avg_wage_worker = mean(wage)
 label var avg_wage_worker "Worker-level average wage"
@@ -165,7 +174,66 @@ label var y_emp_unknown "Pr(emp ∧ unknown avg)"
 label define trt 0 "Control" 1 "Molise"
 label values treat_quake trt
 
+*============================*
+*  VERIFICATION STATISTICS   *
+*============================*
 
+* Sample sizes by region
+di _n "=== SAMPLE SIZES ===" _n
+tab region_res, missing
+bysort region_res: gen n = _n == 1
+egen total_by_region = total(n), by(region_res)
+tab region_res total_by_region if n == 1
+
+* Unique workers by region
+preserve
+duplicates drop id_worker region_res, force
+di _n "=== UNIQUE WORKERS BY REGION ===" _n
+tab region_res
+restore
+
+* Pre-earthquake period statistics (2000-2002)
+di _n "=== PRE-EARTHQUAKE PERIOD COMPARISONS (2000-2002) ===" _n
+
+preserve
+keep if year <= 2002
+
+* Employment rates by region
+di "Employment rates:"
+table region_res, statistic(mean employed) nformat(%9.3f)
+
+* Test for difference in employment rates
+ttest employed, by(region_res)
+
+* Age by region
+di _n "Mean age by region:"
+table region_res, statistic(mean age) nformat(%9.2f)
+ttest age, by(region_res)
+
+* Gender by region
+tab gender if year <= 2002
+tab gender region_res if year <= 2002
+
+di _n "Female proportion by region:"
+gen female = (gender == 2)
+table region_res, statistic(mean female) nformat(%9.3f)
+ttest female, by(region_res)
+
+* Wages by region (among employed)
+di _n "Mean wage by region (employed only):"
+table region_res if employed==1, statistic(mean wage) nformat(%9.2f)
+ttest wage if employed==1, by(region_res)
+
+restore
+
+* Age-specific employment rates by region (baseline period)
+di _n "=== AGE-SPECIFIC EMPLOYMENT BY REGION (2000-2002) ===" _n
+preserve
+keep if year <= 2002
+table region_res age_group, ///
+    statistic(mean employed) ///
+    statistic(frequency) nformat(%9.3f)
+restore
 *============================*
 *  BASELINE TRAJECTORY PLOTS *
 *============================*

@@ -1,0 +1,632 @@
+
+. 
+. *============================*
+. * PACKAGE INSTALLATION       *
+. *============================*
+. local packages ftools reghdfe estout coefplot parmest
+
+. foreach pkg of local packages {
+  2.     cap which `pkg'
+  3.     if _rc ssc install `pkg', replace
+  4. }
+
+. 
+. *============================*
+. *       LOAD DATA            *
+. *============================*
+. local regions molise basilicata
+
+. local first = 1
+
+. foreach r of local regions {
+  2.     if `first' {
+  3.         use "Data/non_derived/`r'.dta", clear
+  4.         local first = 0
+  5.     }
+  6.     else append using "Data/non_derived/`r'.dta"
+  7. }
+(Written by R.              )
+(variable date_end was int, now float to accommodate using data's values)
+(label type already defined)
+(label sector_firm already defined)
+(label firm_dimension already defined)
+(label firm_position already defined)
+(label region_res already defined)
+(label gender already defined)
+(label qualification already defined)
+(label type_contract already defined)
+(label part_time already defined)
+(label reason_end2 already defined)
+
+. 
+. *============================*
+. *  DATA CLEANING & ENGINEERING *
+. *============================*
+. 
+. keep id_worker year gender type wage contract_type sector_12cat region_res year_birth
+
+. 
+. destring region_res, replace
+region_res already numeric; no replace
+
+. 
+. * For each worker, find their region (use mode in case of moves)
+. bysort id_worker: egen region_filled = mode(region_res), maxmode
+warning: For at least one group, region_res contains all missing values. Generating missing values for the modes in these groups. Use
+         option missing to treat missing values as a category.
+(6,563 missing values generated)
+
+. replace region_res = region_filled if missing(region_res)
+(391,428 real changes made)
+
+. drop region_filled
+
+. 
+. * Verify the fix
+. di _n "=== VERIFY: Unemployed workers now have region ===" _n
+
+=== VERIFY: Unemployed workers now have region ===
+
+
+. tab type region_res if type == 4
+
+                  |  Region of residence
+             type | Basilicat     Molise |     Total
+------------------+----------------------+----------
+     Non employed |   257,085    134,343 |   391,428 
+------------------+----------------------+----------
+            Total |   257,085    134,343 |   391,428 
+
+. 
+. *--- Treatment Variables ---*
+. gen byte treat_quake = (region_res == 12)
+
+. label var treat_quake "Molise resident"
+
+. 
+. *--- Wage Processing ---*
+. destring wage, replace force
+wage already numeric; no replace
+
+. label var wage "Annual wage (€)"
+
+. 
+. *--- Employment Indicator ---*
+. gen byte employed = (wage > 0 & !missing(wage)) | (type != 4 & !missing(type))
+
+. replace employed = . if missing(wage) & missing(type)
+(0 real changes made)
+
+. label var employed "Any employment"
+
+. 
+. *--- Cohort Filtering ---*
+. preserve
+
+. * keep if inlist(year, 1999, 2000, 2001) & employed == 1
+. keep id_worker
+
+. duplicates drop
+
+Duplicates in terms of all variables
+
+(818,287 observations deleted)
+
+. di "Cohort size: " _N
+Cohort size: 35757
+
+. tempfile cohort_workers
+
+. save `cohort_workers'
+file /var/folders/yt/tw36rldj4vj59zcpt_d9sjww0000gn/T//S_26055.000002 saved as .dta format
+
+. restore
+
+. 
+. merge m:1 id_worker using `cohort_workers', keep(match) nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                           854,044  
+    -----------------------------------------
+
+. keep if inrange(year, 2000, 2004)
+(726,480 observations deleted)
+
+. *--- Post-treatment indicator ---*
+. gen byte post_quake = (year >= 2003)
+
+. label var post_quake "Post 2003"
+
+. 
+. gen rel_year = year - 2002
+
+. label var rel_year "Year - 2002"
+
+. 
+. *--- Age calculation and age groups ---*
+. gen age = year - year_birth
+
+. label var age "Age in given year"
+
+. 
+. gen byte age_group = .
+(127,564 missing values generated)
+
+. replace age_group = 1 if age <= 34 & !missing(age)
+(57,749 real changes made)
+
+. replace age_group = 2 if age >= 35 & age <= 55 & !missing(age)
+(60,788 real changes made)
+
+. replace age_group = 3 if age >= 56 & !missing(age)
+(9,027 real changes made)
+
+. 
+. label define age_grp 1 "≤34" 2 "35-55" 3 "≥56"
+
+. label values age_group age_grp
+
+. label var age_group "Age group"
+
+. 
+. *--- Employment rates by age and region ---*
+. di _n "=== Employment rates by age group and region ===" _n
+
+=== Employment rates by age group and region ===
+
+
+. bysort region_res age_group: egen emp_rate = mean(employed)
+
+. table region_res age_group, statistic(mean employed) ///
+>                            statistic(frequency) nformat(%9.3f)
+
+-------------------------------------------------------------------
+                    |                    Age group                 
+                    |        ≤34       35-55        ≥56       Total
+--------------------+----------------------------------------------
+Region of residence |                                              
+  Basilicata        |                                              
+    Mean            |      0.476       0.614      0.315       0.531
+    Frequency       |  36780.000   39415.000   5908.000   82103.000
+  Molise            |                                              
+    Mean            |      0.465       0.624      0.405       0.537
+    Frequency       |  20152.000   21196.000   3094.000   44442.000
+  Total             |                                              
+    Mean            |      0.472       0.617      0.346       0.533
+    Frequency       |  56932.000   60611.000   9002.000    1.27e+05
+-------------------------------------------------------------------
+
+. *--- Age group counts by region ---*
+. table region_res age_group, statistic(frequency) nototals
+
+----------------------------------------------
+                    |         Age group       
+                    |     ≤34    35-55     ≥56
+--------------------+-------------------------
+Region of residence |                         
+  Basilicata        |  36,780   39,415   5,908
+  Molise            |  20,152   21,196   3,094
+----------------------------------------------
+
+. 
+. 
+. *--- Worker-level average wage ---*
+. bysort id_worker: egen avg_wage_worker = mean(wage)
+(42,170 missing values generated)
+
+. label var avg_wage_worker "Worker-level average wage"
+
+. 
+. *--- Worker-level Income Category ---*
+. gen byte income_category_worker = .
+(127,564 missing values generated)
+
+. replace income_category_worker = 1 if avg_wage_worker < 28000 & !missing(avg_wage_worker)
+(80,426 real changes made)
+
+. replace income_category_worker = 2 if avg_wage_worker >= 28000 & avg_wage_worker <= 50000
+(3,888 real changes made)
+
+. replace income_category_worker = 3 if avg_wage_worker > 50000 & !missing(avg_wage_worker)
+(1,080 real changes made)
+
+. 
+. label define inc_cat_w 1 "Low" 2 "Medium" 3 "High"
+
+. label values income_category_worker inc_cat_w
+
+. label var income_category_worker "Income category (worker avg)"
+
+. 
+. *--- Current Income Category ---*
+. gen byte income_category = .
+(127,564 missing values generated)
+
+. replace income_category = 1 if wage < 28000 & !missing(wage)
+(62,100 real changes made)
+
+. replace income_category = 2 if inrange(wage, 28000, 50000)
+(4,243 real changes made)
+
+. replace income_category = 3 if wage > 50000
+(61,221 real changes made)
+
+. 
+. label define inc3 1 "Low" 2 "Medium" 3 "High"
+
+. label values income_category inc3
+
+. label var income_category "Income category (current year)"
+
+. 
+. *--- Baseline Income ---*
+. gen byte pre = (post_quake == 0)
+
+. bys id_worker: egen pre_last_year = max(year) if pre
+(51,562 missing values generated)
+
+. gen double baseline_wage = wage if year == pre_last_year
+(113,642 missing values generated)
+
+. bys id_worker: egen baseline_wage_final = max(baseline_wage)
+(59,489 missing values generated)
+
+. drop baseline_wage pre pre_last_year
+
+. rename baseline_wage_final baseline_wage
+
+. label var baseline_wage "Baseline wage (last pre-quake year)"
+
+. 
+. gen byte base_inc = 1 if baseline_wage < 28000 & !missing(baseline_wage)
+(64,641 missing values generated)
+
+. replace base_inc = 2 if inrange(baseline_wage, 28000, 50000)
+(4,059 real changes made)
+
+. replace base_inc = 3 if baseline_wage > 50000 & !missing(baseline_wage)
+(1,093 real changes made)
+
+. 
+. gen byte base_inc4 = cond(missing(base_inc), 4, base_inc)
+
+. label define baseinc4 1 "Low (pre)" 2 "Med (pre)" 3 "High (pre)" 4 "Unknown (pre)"
+
+. label values base_inc4 baseinc4
+
+. label var base_inc4 "Baseline income (4 cats incl. Unknown)"
+
+. 
+. *--- Employment Type Dummies ---*
+. gen byte y_private = (type == 1) if !missing(type)
+
+. gen byte y_public  = (type == 2) if !missing(type)
+
+. gen byte y_self    = (type == 3) if !missing(type)
+
+. 
+. label var y_private "Private employment (Pr)"
+
+. label var y_public  "Public employment (Pr)"
+
+. label var y_self    "Self-employment (Pr)"
+
+. 
+. *--- Log wage ---*
+. gen double lnwage = ln(wage + 1)
+(60,139 missing values generated)
+
+. label var lnwage "Log(wage + 1)"
+
+. 
+. *--- Joint outcomes ---*
+. gen byte y_emp_low     = (employed == 1 & income_category_worker == 1)
+
+. gen byte y_emp_med     = (employed == 1 & income_category_worker == 2)
+
+. gen byte y_emp_high    = (employed == 1 & income_category_worker == 3)
+
+. gen byte y_emp_unknown = (employed == 1 & missing(income_category_worker))
+
+. 
+. label var y_emp_low     "Pr(emp ∧ low avg)"
+
+. label var y_emp_med     "Pr(emp ∧ med avg)"
+
+. label var y_emp_high    "Pr(emp ∧ high avg)"
+
+. label var y_emp_unknown "Pr(emp ∧ unknown avg)"
+
+. 
+. *--- Labels ---*
+. label define trt 0 "Control" 1 "Molise"
+
+. label values treat_quake trt
+
+. 
+. *============================*
+. *  VERIFICATION STATISTICS   *
+. *============================*
+. 
+. * Sample sizes by region
+. di _n "=== SAMPLE SIZES ===" _n
+
+=== SAMPLE SIZES ===
+
+
+. tab region_res, missing
+
+     Region of |
+     residence |      Freq.     Percent        Cum.
+---------------+-----------------------------------
+    Basilicata |     82,103       64.36       64.36
+        Molise |     44,442       34.84       99.20
+             . |      1,019        0.80      100.00
+---------------+-----------------------------------
+         Total |    127,564      100.00
+
+. bysort region_res: gen n = _n == 1
+
+. egen total_by_region = total(n), by(region_res)
+
+. tab region_res total_by_region if n == 1
+
+               | total_by_r
+     Region of |   egion
+     residence |         1 |     Total
+---------------+-----------+----------
+    Basilicata |         1 |         1 
+        Molise |         1 |         1 
+---------------+-----------+----------
+         Total |         2 |         2 
+
+. 
+. * Unique workers by region
+. preserve
+
+. duplicates drop id_worker region_res, force
+
+Duplicates in terms of id_worker region_res
+
+(100,395 observations deleted)
+
+. di _n "=== UNIQUE WORKERS BY REGION ===" _n
+
+=== UNIQUE WORKERS BY REGION ===
+
+
+. tab region_res
+
+     Region of |
+     residence |      Freq.     Percent        Cum.
+---------------+-----------------------------------
+    Basilicata |     17,472       64.89       64.89
+        Molise |      9,454       35.11      100.00
+---------------+-----------------------------------
+         Total |     26,926      100.00
+
+. restore
+
+. 
+. * Pre-earthquake period statistics (2000-2002)
+. di _n "=== PRE-EARTHQUAKE PERIOD COMPARISONS (2000-2002) ===" _n
+
+=== PRE-EARTHQUAKE PERIOD COMPARISONS (2000-2002) ===
+
+
+. 
+. preserve
+
+. keep if year <= 2002
+(51,562 observations deleted)
+
+. 
+. * Employment rates by region
+. di "Employment rates:"
+Employment rates:
+
+. table region_res, statistic(mean employed) nformat(%9.3f)
+
+----------------------------
+                    |   Mean
+--------------------+-------
+Region of residence |       
+  Basilicata        |  0.521
+  Molise            |  0.531
+  Total             |  0.525
+----------------------------
+
+. 
+. * Test for difference in employment rates
+. ttest employed, by(region_res)
+
+Two-sample t test with equal variances
+------------------------------------------------------------------------------
+   Group |     Obs        Mean    Std. err.   Std. dev.   [95% conf. interval]
+---------+--------------------------------------------------------------------
+Basilica |  48,892    .5211896    .0022593    .4995559    .5167614    .5256177
+  Molise |  26,486     .531073    .0030664     .499043    .5250627    .5370833
+---------+--------------------------------------------------------------------
+Combined |  75,378    .5246624     .001819    .4993947    .5210972    .5282275
+---------+--------------------------------------------------------------------
+    diff |           -.0098835      .00381                -.017351   -.0024159
+------------------------------------------------------------------------------
+    diff = mean(Basilica) - mean(Molise)                          t =  -2.5941
+H0: diff = 0                                     Degrees of freedom =    75376
+
+    Ha: diff < 0                 Ha: diff != 0                 Ha: diff > 0
+ Pr(T < t) = 0.0047         Pr(|T| > |t|) = 0.0095          Pr(T > t) = 0.9953
+
+. 
+. * Age by region
+. di _n "Mean age by region:"
+
+Mean age by region:
+
+. table region_res, statistic(mean age) nformat(%9.2f)
+
+----------------------------
+                    |   Mean
+--------------------+-------
+Region of residence |       
+  Basilicata        |  37.00
+  Molise            |  36.85
+  Total             |  36.95
+----------------------------
+
+. ttest age, by(region_res)
+
+Two-sample t test with equal variances
+------------------------------------------------------------------------------
+   Group |     Obs        Mean    Std. err.   Std. dev.   [95% conf. interval]
+---------+--------------------------------------------------------------------
+Basilica |  48,892    37.00378    .0564785    12.48827    36.89309    37.11448
+  Molise |  26,486    36.85098    .0744901    12.12291    36.70497    36.99698
+---------+--------------------------------------------------------------------
+Combined |  75,378    36.95009    .0450236    12.36126    36.86185    37.03834
+---------+--------------------------------------------------------------------
+    diff |             .152806     .094309               -.0320393    .3376512
+------------------------------------------------------------------------------
+    diff = mean(Basilica) - mean(Molise)                          t =   1.6203
+H0: diff = 0                                     Degrees of freedom =    75376
+
+    Ha: diff < 0                 Ha: diff != 0                 Ha: diff > 0
+ Pr(T < t) = 0.9474         Pr(|T| > |t|) = 0.1052          Pr(T > t) = 0.0526
+
+. 
+. * Gender by region
+. tab gender if year <= 2002
+
+     Gender |
+   (Male 0) |      Freq.     Percent        Cum.
+------------+-----------------------------------
+       Male |     45,865       60.35       60.35
+     Female |     30,137       39.65      100.00
+------------+-----------------------------------
+      Total |     76,002      100.00
+
+. tab gender region_res if year <= 2002
+
+    Gender |  Region of residence
+  (Male 0) | Basilicat     Molise |     Total
+-----------+----------------------+----------
+      Male |    29,869     15,681 |    45,550 
+    Female |    19,023     10,805 |    29,828 
+-----------+----------------------+----------
+     Total |    48,892     26,486 |    75,378 
+
+. 
+. di _n "Female proportion by region:"
+
+Female proportion by region:
+
+. gen female = (gender == 2)
+
+. table region_res, statistic(mean female) nformat(%9.3f)
+
+----------------------------
+                    |   Mean
+--------------------+-------
+Region of residence |       
+  Basilicata        |  0.000
+  Molise            |  0.000
+  Total             |  0.000
+----------------------------
+
+. ttest female, by(region_res)
+
+Two-sample t test with equal variances
+------------------------------------------------------------------------------
+   Group |     Obs        Mean    Std. err.   Std. dev.   [95% conf. interval]
+---------+--------------------------------------------------------------------
+Basilica |  48,892           0           0           0           0           0
+  Molise |  26,486           0           0           0           0           0
+---------+--------------------------------------------------------------------
+Combined |  75,378           0           0           0           0           0
+---------+--------------------------------------------------------------------
+    diff |                   0           0                       0           0
+------------------------------------------------------------------------------
+    diff = mean(Basilica) - mean(Molise)                          t =        .
+H0: diff = 0                                     Degrees of freedom =    75376
+
+    Ha: diff < 0                 Ha: diff != 0                 Ha: diff > 0
+ Pr(T < t) =      .         Pr(|T| > |t|) =      .          Pr(T > t) =      .
+
+. 
+. * Wages by region (among employed)
+. di _n "Mean wage by region (employed only):"
+
+Mean wage by region (employed only):
+
+. table region_res if employed==1, statistic(mean wage) nformat(%9.2f)
+
+-------------------------------
+                    |      Mean
+--------------------+----------
+Region of residence |          
+  Basilicata        |  14277.33
+  Molise            |  14754.48
+  Total             |  14447.04
+-------------------------------
+
+. ttest wage if employed==1, by(region_res)
+
+Two-sample t test with equal variances
+------------------------------------------------------------------------------
+   Group |     Obs        Mean    Std. err.   Std. dev.   [95% conf. interval]
+---------+--------------------------------------------------------------------
+Basilica |  25,482    14277.33    70.44261    11244.81    14139.26     14415.4
+  Molise |  14,066    14754.48    93.73538    11117.03    14570.75    14938.21
+---------+--------------------------------------------------------------------
+Combined |  39,548    14447.04    56.32775    11201.72    14336.64    14557.44
+---------+--------------------------------------------------------------------
+    diff |           -477.1459    117.6414               -707.7258    -246.566
+------------------------------------------------------------------------------
+    diff = mean(Basilica) - mean(Molise)                          t =  -4.0559
+H0: diff = 0                                     Degrees of freedom =    39546
+
+    Ha: diff < 0                 Ha: diff != 0                 Ha: diff > 0
+ Pr(T < t) = 0.0000         Pr(|T| > |t|) = 0.0001          Pr(T > t) = 1.0000
+
+. 
+. restore
+
+. 
+. * Age-specific employment rates by region (baseline period)
+. di _n "=== AGE-SPECIFIC EMPLOYMENT BY REGION (2000-2002) ===" _n
+
+=== AGE-SPECIFIC EMPLOYMENT BY REGION (2000-2002) ===
+
+
+. preserve
+
+. keep if year <= 2002
+(51,562 observations deleted)
+
+. table region_res age_group, ///
+>     statistic(mean employed) ///
+>     statistic(frequency) nformat(%9.3f)
+
+-------------------------------------------------------------------
+                    |                    Age group                 
+                    |        ≤34       35-55        ≥56       Total
+--------------------+----------------------------------------------
+Region of residence |                                              
+  Basilicata        |                                              
+    Mean            |      0.468       0.607      0.297       0.521
+    Frequency       |  22597.000   22932.000   3363.000   48892.000
+  Molise            |                                              
+    Mean            |      0.458       0.625      0.400       0.531
+    Frequency       |  12438.000   12258.000   1790.000   26486.000
+  Total             |                                              
+    Mean            |      0.464       0.613      0.333       0.525
+    Frequency       |  35035.000   35190.000   5153.000   75378.000
+-------------------------------------------------------------------
+
+. restore
+
+. 
+end of do-file
+
