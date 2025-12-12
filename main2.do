@@ -156,7 +156,8 @@ label var y_public  "Public employment (Pr)"
 label var y_self    "Self-employment (Pr)"
 
 *--- Log wage ---*
-gen double lnwage = ln(wage + 1)
+gen double lnwage = ln(wage + 1) if wage > 0 & !missing(wage)
+replace lnwage = 0 if employed == 0 | (missing(wage) & type == 4)
 label var lnwage "Log(wage + 1)"
 
 *--- Joint outcomes ---*
