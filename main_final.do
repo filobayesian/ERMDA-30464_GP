@@ -231,46 +231,23 @@ local offset_pct = (`public_gain' / `private_loss') * 100
 di "Public offset as % of private loss: " %5.1f `offset_pct' "%"
 di "(0.0022 / 0.0128 = " %5.3f `public_gain'/`private_loss' ")"
 
-*--- 8. Summary table for copy-paste ---*
-di _n "=" * 70
-di "SUMMARY FOR REPORT (copy these values)"
-di "=" * 70
-
-di _n "Section 3.3 Sample Construction:"
-tab treat_quake
-preserve
-bysort id_worker: keep if _n == 1
-tab treat_quake
-restore
-
-di _n "Section 3.3 Pre-earthquake comparability:"
-di "Run the t-tests above and report means and p-values"
-
-di _n "Section 5.1 Percentage calculations:"
-di "- Employment decline as % of baseline: check calculation above"
-di "- Mid-career decline as % of baseline: check calculation above"  
-di "- Private decline as % of baseline: check calculation above"
-di "- Jobs lost: check calculation above"
-di "- Public offset %: check calculation above"
-
 drop pre_period
 
 *============================*
-*    MAIN REGRESSIONS        *
+* MAIN REGRESSIONS        *
 *============================*
 local absorb_spec absorb(year region_res) vce(cluster id_worker)
 
-*--- (A) Main DiD: Employment, Log Earnings, Conditional Wage ---*
+*--- (A) Main DiD: Employment, Log Earnings (Uncond.), Log Wage (Cond.) ---*
 
-// A1: Employment (Table 1, Col 1)
+// A1: Employment (Table 1, Col 1) -> Extensive Margin
 eststo A_employed: reghdfe employed i.post_quake##i.treat_quake, `absorb_spec'
 
-// A2: Unconditional log earnings (Table 1, Col 2)
-eststo A_lnwage: reghdfe lnwage i.post_quake##i.treat_quake, `absorb_spec'
+// A2: Unconditional Log Earnings (Table 1, Col 2) -> Total Welfare Effect
+eststo A_lnwage_uncond: reghdfe lnwage i.post_quake##i.treat_quake, `absorb_spec'
 
-// A3: Conditional wage - only employed workers (Table 1, Col 3)
-eststo A_wage: reghdfe wage i.post_quake##i.treat_quake if employed == 1, `absorb_spec'
-
+// A3: Conditional Log Wage (Table 1, Col 3) -> Price Effect (Intensive Margin)
+eststo A_lnwage_cond: reghdfe lnwage i.post_quake##i.treat_quake if employed == 1, `absorb_spec'
 
 *--- (B) Employment Type DiD (Figure 2, Panel B) ---*
 foreach y in y_private y_public y_self {
@@ -374,15 +351,16 @@ graph export "$OUT/plot_B_types.png", replace
 
 
 *============================*
-*      EXPORT RESULTS        *
+* EXPORT RESULTS        *
 *============================*
 local star_spec star(* 0.10 ** 0.05 *** 0.01)
 local table_opts replace se r2 ar2 label nonotes b(%9.4f) se(%9.4f) `star_spec'
 
 // Table 1: Main Results
-esttab A_employed A_lnwage A_wage F_age1 F_age2 F_age3 using "$OUT/table1_main_results.txt", ///
+// Note: We use A_lnwage_uncond (Col 2) and A_lnwage_cond (Col 3)
+esttab A_employed A_lnwage_uncond A_lnwage_cond F_age1 F_age2 F_age3 using "$OUT/table1_main_results.txt", ///
     `table_opts' ///
-    mtitles("Employment" "Log Earnings" "Wage (cond.)" "Age ≤34" "Age 35-55" "Age ≥56") ///
+    mtitles("Employment" "Log Earn (Uncond)" "Log Wage (Cond)" "Age ≤34" "Age 35-55" "Age ≥56") ///
     title("Table 1: Main Results")
 
 // Robustness checks
